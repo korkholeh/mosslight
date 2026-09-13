@@ -23,13 +23,21 @@ with no echo and no line editing. Over SSH, they often cannot even see what they
 ## Decision
 
 - **`TerminalGuard`** is the only type that mutates terminal state. `TerminalGuard::enter()` enables raw
-  mode, switches to the alternate screen, and hides the cursor; `Drop` reverses all of it in order and is
-  idempotent. No other module calls `enable_raw_mode`, `EnterAlternateScreen`, or touches the cursor.
-- **Pre-flight checks run before `enter()`**: if stdin or stdout is not a TTY, or `TERM` is unset/`dumb`,
+  mode first (so the guard exists, and can undo it, even if a later step fails), then switches to the
+  alternate screen and hides the cursor; if either of those two fails, `enter()` restores immediately and
+  returns the error, rather than leaving raw mode enabled with nothing left to undo it. `Drop` reverses
+  everything in order and is idempotent. No other module calls `enable_raw_mode`, `EnterAlternateScreen`, or
+  touches the cursor.
+- **Pre-flight checks run before `enter()`**: if `TERM` is unset/`dumb`, or stdin or stdout is not a TTY,
   print one line to stderr and exit 2. The terminal is never modified in that path (§3).
-- **A panic hook installed by `enter()`** performs the same restoration and *then* calls the previous hook to
-  print the panic message. Because the hook runs before unwinding reaches `Drop`, a panic inside a ratatui
-  draw call still leaves a usable terminal; the guard's idempotent `Drop` then runs harmlessly.
+- **The panic hook is installed separately from `enter()`**, by a plain `install_panic_hook(restored, restore)`
+  function `main.rs` calls right after `enter()` succeeds — not by `enter()` itself, so a `RecordingOps`-backed
+  guard in tests can be built without touching the process-global hook. The guard and the hook share one
+  `Arc<AtomicBool>` "restored" flag (`TerminalGuard::restored_flag()`): whichever of "the guard's `Drop`" or
+  "a panic unwinding" runs first flips the flag and performs the restoration; the other observes it already
+  flipped and is a no-op. The hook restores first and *then* calls the previous hook to print the panic
+  message, so a panic inside a ratatui draw call still leaves a usable terminal, and the terminal is never
+  restored a second time after the panic message has already printed.
 - **Signals via `signal-hook`**: SIGTERM and SIGHUP are registered with `signal_hook::flag::register`, which
   only sets an `AtomicBool` — async-signal-safe, no allocation, no file I/O in the handler (§11). The main
   loop checks the flag each iteration and exits through the normal path, so restoration and diagnostics

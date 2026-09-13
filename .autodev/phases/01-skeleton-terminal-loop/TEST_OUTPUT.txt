@@ -1,0 +1,157 @@
+$ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --locked
+# exit code: 0   # 2026-09-13 23:17:39
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/mosslight-9dd0f4d23e86bf31)
+
+running 10 tests
+test game::rng::tests::different_seeds_diverge ... ok
+test game::world::tests::debug_room_has_walls_water_and_bush ... ok
+test game::world::tests::debug_room_spawn_is_walkable ... ok
+test game::rng::tests::below_stays_in_range ... ok
+test game::rng::tests::same_seed_yields_same_sequence ... ok
+test render::scene::tests::layout_80x24_is_centred ... ok
+test render::theme::tests::every_theme_uses_the_identical_glyph_table ... ok
+test render::scene::tests::layout_60x24_matches_spec_example ... ok
+test render::tiles::tests::every_kind_has_a_glyph ... ok
+test render::hud::tests::hud_contains_hp_label ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/mosslight-a76e4220b0d5be02)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/config.rs (target/debug/deps/config-5d32a518e767ca89)
+
+running 20 tests
+test color_precedence_explicit_flag_wins_over_no_color ... ok
+test color_precedence_non_tty_forces_never ... ok
+test color_precedence_auto_healthy_term_is_always ... ok
+test color_precedence_term_dumb_forces_never ... ok
+test color_precedence_no_color_wins_over_auto ... ok
+test save_dir_macos_default ... ok
+test save_dir_linux_fallback_default ... ok
+test save_dir_linux_xdg_default ... ok
+test defaults_are_ascii_gameboy_20fps ... ok
+test explicit_save_dir_overrides_default ... ok
+test every_flag_parses ... ok
+test fps_45_is_rejected ... ok
+test ascii_and_unicode_together_is_rejected ... ok
+test debug_panic_flag_parses_hidden ... ok
+test version_flag_exits_0_on_stdout ... ok
+test help_flag_exits_0_on_stdout ... ok
+test non_tty_stdin_exits_2_with_one_stderr_line ... ok
+test term_dumb_exits_2_with_one_stderr_line_and_no_stdout ... ok
+test version_flag_prints_to_stdout_and_exits_0 ... ok
+test help_flag_prints_to_stdout_and_exits_0 ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/deps.rs (target/debug/deps/deps-220de9094e547b3e)
+
+running 2 tests
+test cargo_toml_never_declares_crossterm ... ok
+test single_crossterm_in_lockfile ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/input_policy.rs (target/debug/deps/input_policy-7f13a1b48d9d2bc9)
+
+running 11 tests
+test arrows_and_wasd_map_to_moves ... ok
+test burst_of_200_moves_yields_one_action ... ok
+test burst_ending_in_a_direction_change_yields_the_newest_movement ... ok
+test combat_and_menu_keys_map_per_spec ... ok
+test coalesce_keeps_last_movement_and_other_actions ... ok
+test ctrl_c_maps_to_quit ... ok
+test drain_ready_empties_a_500_event_burst_in_one_call_and_yields_one_step ... ok
+test drain_ready_still_empties_the_source_past_the_hard_cap ... ok
+test drop_pending_clears_buffered_actions ... ok
+test enter_and_e_differ_by_mode ... ok
+test overflow_retains_up_to_eight_control_actions_queued_ahead_of_a_movement_burst ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/loop_timing.rs (target/debug/deps/loop_timing-fbd2a2200389abdf)
+
+running 8 tests
+test a_long_stall_yields_at_most_five_steps_and_discards_the_surplus ... ok
+test draw_cadence_scales_with_fps_while_simulation_tick_count_does_not ... ok
+test a_keypress_delivered_when_no_sim_step_is_due_is_not_lost ... ok
+test no_draw_is_due_while_idle_with_nothing_dirty ... ok
+test draws_per_second_never_exceed_configured_fps ... ok
+test a_held_movement_key_advances_the_hero_at_the_step_cooldown_rate_across_iterations ... ok
+test no_draw_is_due_while_playing_idle_with_no_actions ... ok
+test state_is_identical_at_every_fps ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/mode_machine.rs (target/debug/deps/mode_machine-d0a2c2865de36777)
+
+running 7 tests
+test help_returns_to_previous_mode ... ok
+test esc_pauses_and_stops_simulation ... ok
+test quit_in_too_small_mode_quits_immediately_with_no_confirmation ... ok
+test quit_requires_confirmation ... ok
+test new_game_enters_playing_at_spawn ... ok
+test resize_too_small_stops_ticks_then_recovery_enters_paused ... ok
+test esc_resumes_and_drops_a_trailing_move_from_the_same_batch ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/movement.rs (target/debug/deps/movement-a486ef2efb2cb51d)
+
+running 8 tests
+test blocked_by_bush ... ok
+test determinism_same_seed_same_actions ... ok
+test blocked_by_water ... ok
+test no_actions_is_a_noop_except_tick ... ok
+test blocked_by_wall_keeps_position_sets_facing ... ok
+test blocked_out_of_bounds ... ok
+test one_step_per_cooldown ... ok
+test steps_in_each_direction ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/no_key_release.rs (target/debug/deps/no_key_release-244b8cef84305c92)
+
+running 1 test
+test no_key_release_or_extended_protocol_tokens_in_src ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/render.rs (target/debug/deps/render-3ef840a5fdb013dc)
+
+running 5 tests
+test too_small_notice_shows_required_and_current_size ... ok
+test draw_never_panics_on_a_too_small_frame_even_without_a_prior_resize ... ok
+test scene_placement_60x24 ... ok
+test main_menu_overlay_lists_all_items ... ok
+test scene_centred_80x24 ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/terminal_guard.rs (target/debug/deps/terminal_guard-63b80c31f54d9de5)
+
+running 8 tests
+test diagnostics_buffer_until_flushed ... ok
+test drop_restores_in_reverse_order ... ok
+test preflight_table ... ok
+test enter_records_enable_raw_then_alt_then_hide_cursor ... ok
+test explicit_restore_then_drop_runs_restore_sequence_once ... ok
+test a_failure_partway_through_enter_still_disables_raw_mode ... ok
+test panic_hook_sharing_a_guards_flag_stops_the_guard_from_restoring_again ... ok
+test panic_hook_restores_before_the_default_hook_runs ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests mosslight
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

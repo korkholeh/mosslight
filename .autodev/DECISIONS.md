@@ -47,3 +47,221 @@ Appended by agents whenever they choose between options without a human.
 - [roadmap/assumption] "At least 3 secrets" (§2) is read as 3 hidden rewards in the overworld reachable with the lantern, none of them on the main route — why: §7 requires the main route to have no dead ends, so a secret gating progress would contradict it — alternatives: dungeon secrets, secrets that shortcut the main route.
 - [roadmap/assumption] The two required puzzle kinds (§6) are instantiated in the dungeon (phase 5); phase 4's overworld carries the one "simple puzzle" that yields the lantern per §7 step 4 — why: §7's main route names exactly one pre-lantern puzzle and §2 places the puzzle content in the dungeon — alternatives: spreading both puzzle kinds across the overworld, all puzzles in the dungeon including the lantern gate.
 - [roadmap/assumption] Maximum health is reached through 2 heart containers (3 → 5 hearts, §2), placed one as a secret and one as a dungeon reward — why: §2 fixes the start and cap but not how the gap is closed — alternatives: a single +2 container, containers sold or given by NPCs (shops are out of scope).
+
+## PHASE 1 — PLAN (2026-09-13)
+
+- [phase-1/plan] The loop's pacing arithmetic lives in `app.rs` as a clock-free `Pacer` that takes elapsed nanoseconds and returns `Due { sim_steps, draw }` — why: the fps-independence acceptance criterion has to be provable without a terminal, and putting the arithmetic in the lib does that without adding a module outside ARCHITECTURE's fixed file list — alternatives: a new `src/loop_timing.rs`, keeping the arithmetic in `main.rs` (untestable), passing `Instant`/`Duration` into the lib.
+- [phase-1/plan] `Mode::Help` is part of the phase-1 mode set even though ARCHITECTURE's mode list omits it — why: §5 binds `?` to Help, and shipping a documented key with no destination is a stub on a user-facing surface — alternatives: deferring Help to a later phase, dropping the `?` binding until then.
+- [phase-1/plan] Terminal side effects go through a `TerminalOps` trait (`CrosstermOps` in production, `RecordingOps` in tests) while `TerminalGuard` stays the single owner with one idempotent `Drop` — why: ADR 0007's guarantee has to be asserted on a recorded call sequence, and the intake forbids a PTY harness — alternatives: asserting restoration by code inspection only, an `expectrl`/`portable-pty` harness, testing against the real terminal in CI.
+- [phase-1/plan] The phase-1 room is hard-coded in `game/world.rs` as `debug_room()` (24×16, wall ring, water and bush patches) and is replaced by the phase-2 content pipeline — why: the content schema and validator are phase 2 by roadmap decision, and a playable room is a phase-1 deliverable — alternatives: pulling the RON pipeline forward into phase 1, shipping phase 1 without a walkable room.
+- [phase-1/plan] fps-independence is asserted by comparing `serde_json::to_vec(&GameState)` bytes — why: `state_hash()` is a phase-3 deliverable and serde is already a fixed dependency, so this gives a literal byte comparison now — alternatives: deriving `PartialEq` only, pulling `state_hash()` forward into phase 1.
+- [phase-1/plan] Input overflow policy: past the 32-event per-iteration cap the remaining immediately-available events are drained and discarded, keeping at most 8 non-movement actions (`Quit`, `Cancel`, `Confirm`) — why: leaving the surplus queued would let a 200-event burst replay as steps over the following iterations, which is exactly what §5 forbids; discarding everything could swallow a quit request — alternatives: leaving the surplus queued for later iterations, discarding the surplus wholesale, an unbounded queue with time-based debouncing.
+- [phase-1/plan] Exit codes: 0 success, 1 runtime/write error, 2 usage or startup refusal (non-TTY, `TERM=dumb`, clap error) — why: §3 requires a non-zero exit with a short explanation and clap already uses 2 for usage errors — alternatives: 1 for everything, distinct codes per refusal reason.
+- [phase-1/plan] `--debug` overlay and `--log-file PATH` (named in ARCHITECTURE but not in §12) are deferred out of phase 1 — why: phase 1 owns the §12 surface plus the hidden `--debug-panic`, and diagnostics already have a deferred stderr buffer — alternatives: implementing both now, dropping them from the design entirely.
+- [phase-1/plan] `--unicode` is parsed and stored but renders the ASCII glyph table until phase 6, and `--theme ansi` aliases the gameboy palette in phase 1 — why: Unicode is one atomic deliverable (RISKS #15) and a half-populated tile set is worse than none; the flag surface must still not churn — alternatives: rejecting `--unicode` with an error in phase 1, authoring Unicode glyphs now.
+- [phase-1/plan] Layout is fixed at a 50×21 block centred by floor division (`x0 = (w-50)/2`, `y0 = (h-21)/2`): HUD row, 50×18 bordered scene (interior 48×16), message row, hint row; a tile's glyph occupies the left column of its two and is padded with a space on the right — why: the render tests assert absolute cell positions, so the arithmetic must be stated once rather than discovered per call site — alternatives: top-aligned layout, centring with rounding up, glyph centred or right-aligned within the tile.
+- [phase-1/plan] All §6 combat constants are defined in `game/tuning.rs` now as `pub` items even though only movement uses them this phase — why: §6 requires the values kept in one place, and `pub` items in the lib cannot trip `dead_code` under `clippy -D warnings` — alternatives: adding each constant in the phase that first uses it, `#[allow(dead_code)]`.
+
+## PHASE 1 — IMPLEMENT (2026-09-13)
+
+- [phase-1/implement] `App::apply(&mut self, actions: &[Action]) -> Vec<Action>` returns the sim-bound
+  actions instead of the void signature sketched in PLAN.md, and `App` has no persistent `pending` buffer —
+  mode transitions and menu navigation are resolved action-by-action inside `apply`, and any action is
+  routed into the returned vector only while already `Playing` at that point in the batch. The moment an
+  action closes an overlay back into `Playing`, everything collected so far is dropped and the rest of the
+  batch is ignored — why: a separate `pending: Vec<Action>` plus a `drop_pending` call on resume left a gap
+  where a movement key queued in the *same* input batch right after the closing key would still reach
+  `game::update` on the very same tick, which is exactly the stale-replay behaviour §5 forbids; folding the
+  drop into `apply` itself makes it structural instead of an easy-to-forget call site — alternatives: the
+  literal `pending` buffer from PLAN.md with an explicit `drop_pending` call in `apply_paused`'s `Cancel`
+  arm (misses the same-batch case), clearing `pending` only in `main.rs` after `on_resize`.
+- [phase-1/implement] `TerminalGuard::enter` no longer installs the panic hook itself; `install_panic_hook(f)`
+  is a separate function `main.rs` calls right after `enter`, taking a plain restore closure — why: the
+  original sketch needed a process-global `Mutex<Option<Box<dyn Fn()>>>` slot so the hook could reach a
+  guard living on `main`'s stack, which added a global-mutable-state seam with no test value; a bare closure
+  lets `tests/terminal_guard.rs` install a `RecordingOps`-backed hook and assert the call order via
+  `catch_unwind` without any global slot — alternatives: the `OnceLock<Mutex<Option<Box<dyn Fn()>>>>` slot,
+  making `TerminalGuard` itself `!Send` and hook-aware.
+- [phase-1/implement] Default `--seed` is the fixed literal `0x4D6F73736C696768` — why: PLAN.md specifies
+  only "a fixed default seed" without a value; this one is arbitrary (an ASCII-derived constant) but fixed,
+  which is all §13's determinism test requires — alternatives: `0`, `1`, a value derived from a build-time
+  constant.
+- [phase-1/implement] Most of PLAN.md's named test files (`tests/movement.rs`, `tests/input_policy.rs`,
+  `tests/mode_machine.rs`, `tests/terminal_guard.rs`, `tests/config.rs`, `tests/loop_timing.rs`) hold their
+  tests exclusively — nothing is duplicated back into the corresponding `src/*.rs` unit-test module — why:
+  `tests/no_key_release.rs` scans all of `src/**/*.rs` for the literal token `KeyEventKind`, and constructing
+  a `crossterm::event::KeyEvent` fixture (required field, even for a synthetic "key pressed" event) requires
+  naming that type; keeping those fixtures in `tests/` is what lets the scan stay a blunt whole-file grep
+  instead of gaining exceptions — alternatives: keeping unit tests in `src/` and carving an exception into
+  the forbidden-token scan for test-only code, constructing `KeyEvent` via a helper that hides the literal
+  token (still fails a textual scan unless the scan gets smarter).
+
+## PHASE 1 — REVIEW FIXES, round 1 (2026-09-13)
+
+- [phase-1/review-fix] `main.rs::run` now probes `terminal::size()` once before entering the loop and feeds it
+  through `App::on_resize`, and `render::draw` additionally guards on `render::is_too_small(frame.area())`
+  regardless of `app.mode` — why: crossterm emits no `Resize` event at startup, so `Mode::TooSmall` was
+  unreachable until the first resize and a terminal already below 60×24 at launch panicked inside ratatui's
+  buffer indexing (confirmed in a real pty: `index outside of buffer ... index is (25, 20)`, exit 101); the
+  render-side guard is belt-and-braces so a stale `app.size`/frame-area mismatch can never reach that panic
+  again — alternatives: only the startup probe (leaves the render path trusting `app.mode`), only the render
+  guard (still misses the "resumes into the wrong mode" half of the criterion).
+- [phase-1/review-fix] `Mode::TooSmall` now handles `Action::Quit` by setting `self.quit` directly instead of
+  routing through `ConfirmQuit` — why: a confirm-quit dialog cannot render at a too-small size, and spec §11
+  requires Ctrl+C (which maps to `Action::Quit`) to be a graceful-shutdown request in every mode; before this
+  fix a player who shrank the terminal had no keyboard way out at all — alternatives: transitioning to
+  `ConfirmQuit` and drawing a one-line hint in the too-small notice, requiring a resize back up before quitting
+  is possible.
+- [phase-1/review-fix] `Config::from_args` now classifies `clap::error::ErrorKind::DisplayHelp` /
+  `DisplayVersion` / `DisplayHelpOnMissingArgumentOrSubcommand` as exit code 0 on stdout (new
+  `config::OutputStream` enum on `StartupError`), keeping exit code 2 on stderr for genuine usage errors —
+  why: clap itself exits 0 on stdout for `--help`/`--version`, and the previous blanket mapping to code 2 on
+  stderr broke `mosslight --help | less` and contradicted `docs/user/cli.md`'s own (now corrected) claim —
+  alternatives: leaving `StartupError` as a single message+code pair and special-casing the print call site
+  by re-parsing `e.kind()` in `main.rs` (duplicates the classification logic across two files).
+- [phase-1/review-fix] Raw terminal events are now drained to exhaustion every iteration via a new
+  `input::{EventSource, drain_ready}` seam (`main.rs`'s `CrosstermEvents` wraps zero-timeout
+  `crossterm::event::poll`/`read`; tests use an in-memory `VecDeque`), replacing the old `poll_events` that
+  stopped at 256 raw events and left the remainder queued for later iterations — why: PLAN.md and this file
+  both specify draining and discarding the surplus, and leaving events queued let a >256-event burst replay as
+  further simulation steps over subsequent iterations, exactly what §5 forbids; the movement/control overflow
+  policy (`apply_overflow_policy`) already runs correctly on however many raw events arrive, so draining fully
+  is safe. `drain_ready`'s `hard_cap` (`game::tuning::INPUT_EVENT_HARD_CAP = 4096`) is a livelock guard only,
+  not a second overflow policy; events discarded past it are counted into `Diagnostics` — alternatives: raising
+  the old break threshold (still leaves an unbounded burst queued), an unbounded drain with no livelock guard
+  at all.
+- [phase-1/review-fix] `TerminalGuard` now holds `Arc<AtomicBool>` instead of a private `bool` for `restored`,
+  exposes it via `restored_flag()`, and `install_panic_hook` takes that same flag so whichever of "the guard's
+  `Drop`" or "the panic hook" runs first is the only one that emits the restore sequence — why: the previous
+  panic hook used a fresh `CrosstermOps` independent of the live guard's own `restored` bool, so unwinding
+  after a panic ran the full restore sequence a second time, after the panic message had already printed
+  (confirmed in a real pty transcript) — alternatives: a process-global `OnceLock<AtomicBool>` instead of a
+  guard-owned `Arc` (adds global mutable state for one call site), leaving the double restore as harmless
+  (it is invisible in practice, but it is still stray output after the diagnostic, which is exactly the
+  ordering §11 cares about).
+- [phase-1/review-fix] Added `tests/loop_timing.rs::draw_cadence_scales_with_fps_while_simulation_tick_count_does_not`,
+  which drives `Due.draw` (previously untouched by any test) across fps 10/20/30 over a fixed number of tick
+  iterations and asserts draw counts rise with fps while the simulation tick count does not — why: the
+  reviewed fps-independence test only proved `Pacer` ignores `frame_interval_ns` for its own tick math, never
+  exercising `due.draw` at all. A literal "same wall-clock second chopped into N frames" version was
+  considered and rejected: `frame_interval_ns` for 30fps (`1e9/30` truncated to 33,333,333ns) does not evenly
+  divide the 100ms/500ms alignment marks that make 10fps/20fps exact, so action-injection points would land up
+  to one tick later at 30fps than at 10/20fps, shifting `Hero.step_ready_at` (part of the serialized state) by
+  a tick and breaking byte-identical comparison for reasons unrelated to any real bug — alternatives: the
+  rejected literal-chopping design, leaving the gap unaddressed since it was rated minor.
+- [phase-1/review-fix] `scripts/terminal-restore-check.sh` gained a third case: resize the pty to 100×20 after
+  launch, then `Q` (which now quits immediately per the `TooSmall`/`Quit` fix above, with no confirm dialog to
+  wait for). Its captured transcript is committed at
+  `.autodev/phases/01-skeleton-terminal-loop/TERMINAL_RESTORE.txt` — why: T15 previously claimed specific
+  results ("Actually run... exits 0 and 101... `lflags` byte-identical") with no transcript in the diff for a
+  future reader to check, which CLAUDE.md explicitly forbids; a terminal already too small *at startup* (before
+  any resize) is still not exercised here because expect's default pty is 80×24 and cannot be spawned smaller
+  by this script, so that gap is stated in the script's own output rather than silently skipped — alternatives:
+  attempting to force expect's initial pty size below 80×24 (no straightforward portable mechanism), leaving
+  T15 as a code-inspection claim.
+- [phase-1/review-fix] `tests/terminal_guard.rs::preflight_refusal_records_no_terminal_calls` was deleted rather
+  than rewritten — why: its only assertion (`err.code == 2`) already exists in `preflight_table`, and the
+  actual property it claimed to pin down ("no `TerminalOps` impl is ever constructed on this path in
+  `main.rs`") was stated in a comment with nothing in the test observing `main.rs`; the real version of that
+  property is now the stdout-emptiness assertions added to `tests/config.rs`'s spawned-binary tests (see
+  below), which do observe the real binary — alternatives: keeping the comment-only test alongside the new
+  spawned assertions (redundant and still not a check on anything).
+- [phase-1/review-fix] `tests/config.rs::non_tty_stdin_exits_2_with_one_stderr_line` now also asserts
+  `output.stdout.is_empty()`, and a new sibling `term_dumb_exits_2_with_one_stderr_line_and_no_stdout` spawns
+  the binary with `TERM=dumb` — why: an empty stdout is a real, cheap proof that raw mode/the alternate screen
+  were never entered (either would write an escape sequence such as `\x1b[?1049h`), and the `TERM=dumb` half of
+  the startup-refusal criterion previously had no end-to-end test at all — alternatives: asserting the absence
+  of the specific escape sequence by substring match instead of emptiness (weaker: raw mode alone, without
+  entering the alt screen, would not contain that exact substring but would still be a violation).
+
+## PHASE 1 — REVIEW FIXES, round 2 (2026-09-13)
+
+- [phase-1/review-fix-r2] `main.rs::run` now keeps a `pending: Vec<Action>` across loop iterations instead of
+  recomputing `app.apply(&actions)` as a local dropped whenever `due.sim_steps == 0`; the iteration body that
+  merges/coalesces/consumes it is extracted into a new `app::advance_iteration` free function so the real
+  loop's timing-dependent wiring — not just `App`/`Pacer` in isolation — is directly testable — why: round-2
+  review found the hero effectively unable to walk: a keypress arriving mid-tick (the normal case, since the
+  poll deadline is tick-based) landed in an iteration with `sim_steps == 0` and was thrown away outright,
+  verified in a real pty (4 isolated key presses moved the hero 0 times). `tests/loop_timing.rs` gained
+  `a_keypress_delivered_when_no_sim_step_is_due_is_not_lost` and
+  `a_held_movement_key_advances_the_hero_at_the_step_cooldown_rate_across_iterations`, both driving
+  `advance_iteration` directly — alternatives: buffering inside `App` itself (rejected in round 1 for a
+  different reason — see PHASE 1 — IMPLEMENT — that still applies: `App::apply`'s per-action same-batch drop
+  needs mode transitions resolved every iteration regardless of pacing, so the pacing-only buffer has to be a
+  layer above `App`, not inside it), retrying the poll until a tick boundary is crossed (adds input latency and
+  contradicts the "sleep between iterations" comment on `CrosstermEvents`).
+- [phase-1/review-fix-r2] `App::tick` now returns/uses `!events.is_empty()` to gate `dirty` instead of setting
+  it unconditionally whenever `Mode::Playing`, and `main.rs`'s draw condition dropped the separate `any_step`
+  OR-bypass (`due.draw && app.take_dirty()` instead of `due.draw && (app.take_dirty() || any_step)`) — why:
+  CLAUDE.md states "do not draw when nothing changed," and the unconditional `dirty = true` plus the
+  `any_step` bypass together meant a frame was written every fps interval forever while `Playing`, confirmed in
+  the pty transcript (~20 bytes/frame at idle, forever); `any_step` was redundant with the fixed `dirty` once
+  `dirty` correctly tracks "did this tick change anything" — every tick that changes something already ORs
+  that into `dirty`, across all catch-up steps in the iteration — alternatives: keeping `any_step` as a
+  belt-and-braces OR (defeats the fix, since it becomes true on any ticked step regardless of change), gating
+  on `GameEvent` variant instead of emptiness (finer-grained than this phase needs; §9's tick-vs-render split
+  only cares whether *anything* changed).
+- [phase-1/review-fix-r2] `input::apply_overflow_policy` now keeps the **tail** (last `INPUT_EVENTS_PER_ITER`
+  actions) instead of the **head** (first), rescuing up to `MAX_RETAINED_CONTROL_ACTIONS` control actions from
+  the discarded, older surplus ahead of that tail — why: keeping the head meant a burst larger than 32 events
+  applied the 32nd-oldest keypress as the surviving movement after `coalesce`, discarding every newer key
+  including the direction actually pressed last — the exact stale-replay behaviour §5 forbids, just moved one
+  layer up from where round 1 fixed it. `tests/input_policy.rs` gained
+  `burst_ending_in_a_direction_change_yields_the_newest_movement` (200 North + 1 South → South survives) and
+  replaced the old `overflow_retains_up_to_eight_control_actions_beyond_the_cap` scenario (20 Quit ahead of a
+  40-Move burst, since a Quit *after* the burst now survives via the tail alone and no longer exercises the
+  rescue path) — alternatives: coalescing before capping (equivalent for movement freshness, but collapses
+  repeated non-movement actions no differently and was more invasive to the existing head/surplus structure for
+  no behavioural gain).
+- [phase-1/review-fix-r2] `terminal::preflight` now checks `TERM` before the stdin/stdout TTY check — why: a
+  spawned test process can never be given a TTY (no PTY harness — see round 1's `preflight_table` alternative),
+  so `tests/config.rs::term_dumb_exits_2_with_one_stderr_line_and_no_stdout` could only ever exercise the same
+  branch as the plain non-TTY test regardless of `TERM`, making it pass unconditionally even if the `dumb`
+  branch were deleted; reordering plus asserting `stderr.contains("dumb")` makes it a real, distinguishing
+  end-to-end check. The unit-level `preflight_table` already proves the `dumb` branch triggers `Err` on its
+  own, independent of ordering — alternatives: dropping the spawned `dumb` case entirely and relying on the
+  unit level only (loses end-to-end coverage of the message actually reaching stderr through `main.rs`'s
+  wiring); this reorder does mean a terminal that is simultaneously non-TTY and `TERM=dumb` now reports the
+  `TERM` message first in real usage instead of the TTY message — judged an acceptable, rare edge case, and
+  arguably no less informative to the user.
+- [phase-1/review-fix-r2] `TerminalGuard::enter` now constructs the guard immediately after `enable_raw`
+  succeeds and runs `enter_alt`/`hide_cursor` through it, calling `guard.restore()` before propagating an `Err`
+  — why: previously `ops.enable_raw()?; ops.enter_alt()?; ops.hide_cursor()?;` meant a failure in either of the
+  last two calls returned `Err` before any `TerminalGuard` existed, so nothing ran `disable_raw` and the
+  caller's shell was left in raw mode with no way to recover short of `reset` — exactly the failure RISKS #4 is
+  about, on a path the existing `RecordingOps` (which never fails) could not reach. Added
+  `tests/terminal_guard.rs::a_failure_partway_through_enter_still_disables_raw_mode` with a new
+  `FailingEnterAltOps` fake that fails `enter_alt` and asserts the full restore sequence, including
+  `disable_raw`, still ran — alternatives: wrapping the whole body in a closure and calling a free `restore`
+  function on the raw `ops` before returning (equivalent in effect, more indirection for no benefit since
+  `TerminalGuard` already owns exactly this restore sequence).
+- [phase-1/review-fix-r2] `scripts/terminal-restore-check.sh` now sets an explicit pty size (`stty rows 24
+  columns 80`) inside the spawned bash command before the binary starts, targets the resize case's `stty` at
+  the spawned pty's slave device (`< $spawn_out(slave,name)`) instead of `expect`'s own stdin, raises Expect's
+  2000-byte `match_max` (smaller than one rendered frame here), actively drains output between keystrokes
+  instead of a bare Tcl `sleep` (which reads nothing), and asserts the captured transcript contains content
+  that could only have been drawn by the scenario each case claims (`HP`, `Quit?`, `panicked`, `60x24`, and
+  each case's exit code) — why: round-2 review reproduced the round-1 script running in a 0×0 pty in this
+  sandbox (`expect` allocates an unsized pty when it has no controlling terminal of its own), so every case
+  silently rendered nothing and the committed transcript's scenario labels ("normal exit", "resize to 100×20")
+  described paths that never actually ran; asserting on drawn content turns a misconfigured pty into a failing
+  check instead of a silently-passing one — alternatives: only fixing the pty size without a content assertion
+  (would have hidden the exact same failure mode from a future reviewer/regression), driving `stty` against
+  `expect`'s own controlling terminal (the round-1 bug for the resize case specifically).
+- [phase-1/review-fix-r2] The committed `TERMINAL_RESTORE.txt` was replaced with an honest status note instead
+  of a fresh clean transcript, and no claim of a successful end-to-end run is made — why: even after every fix
+  above, repeated runs of the script in this sandbox hit a further, distinct timing race: a keystroke sent
+  shortly after `spawn` can land while the spawned shell is still in canonical/echo mode, before mosslight has
+  enabled raw mode, so it is consumed as ordinary shell input (visible in the transcript as the literal
+  character echoed in cleartext ahead of any rendered output) instead of reaching the program, and the case
+  then times out. A minimal `python3 pty.fork()` harness outside `expect` entirely reproduced the identical
+  failure mode when it wrote a keystroke without first draining the child's output backlog, and — this is the
+  part worth recording — exited correctly and immediately, every time across repeated runs, once output was
+  actively drained before and while sending keys; that is independent evidence mosslight's own `Mode::TooSmall`
+  Quit handling and the normal confirm-quit path are correct, and that the unresolved part is this sandbox's
+  `expect`/pty scheduling, not application behaviour — consistent with the already-logged "no controlling TTY"
+  limitation (ADR 0008, RISKS #17) — alternatives: committing a transcript from the `pty.fork()` harness instead
+  (that harness does not exercise `TerminalGuard`/raw-mode/alt-screen the way the real binary under `expect`
+  does, and the intake explicitly forbids building a project-owned PTY harness as a test dependency), continuing
+  to retry `expect` until it happens to succeed and committing that transcript uncommented (would misrepresent
+  a lucky run as a reliable one).

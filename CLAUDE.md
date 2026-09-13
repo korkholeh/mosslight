@@ -31,6 +31,10 @@ Dependencies are fixed: `ratatui 0.30.2`, `clap 4.6`, `serde 1`, `ron 0.12`, `se
 There is **no separate e2e layer**. The headless start-to-victory playthrough and the scene-placement
 checks are ordinary Rust tests under `tests/`, run by `cargo test`. Do not add a PTY harness.
 
+`scripts/terminal-restore-check.sh` is a manual, host-run script (not part of `cargo test`) that drives
+the release binary through a real PTY via `expect` and prints `stty -a` before/after, for confirming
+terminal restoration by hand. It is not part of any automated gate.
+
 When running by hand, always pass `--save-dir /tmp/mosslight-scratch` so a manual run cannot clobber a real
 save. The game refuses to start without a TTY, so it cannot be driven from a pipe — use `TestBackend`.
 
@@ -70,3 +74,4 @@ tests/          integration tests
 - English everywhere: code, identifiers, comments, commit messages, docs.
 
 Autodev docs: .autodev/ (ARCHITECTURE.md, RISKS.md, ROADMAP.md, PROGRESS.md, DECISIONS.md, phases/NN-*/PLAN.md)
+Project docs: docs/dev/ (development, testing, loop-and-modes, troubleshooting, adr/), docs/user/ (cli, controls), CHANGELOG.md
