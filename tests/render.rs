@@ -2,14 +2,19 @@
 //! through `TestBackend` — the deterministic equivalent of a screenshot (spec §4, §13).
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use mosslight::app::App;
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
-use mosslight::game::Action;
+use mosslight::game::{Action, World};
 use mosslight::render::{self, Theme};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::Terminal;
+
+fn world() -> Rc<World> {
+    Rc::new(mosslight::content::load().expect("embedded world validates"))
+}
 
 fn cfg() -> Config {
     Config {
@@ -20,6 +25,7 @@ fn cfg() -> Config {
         save_dir: PathBuf::from("/tmp"),
         seed: 1,
         debug_panic: false,
+        debug_content: None,
     }
 }
 
@@ -40,7 +46,7 @@ fn buffer_text(buf: &Buffer) -> String {
 }
 
 fn render_at(w: u16, h: u16, setup: impl FnOnce(&mut App)) -> Buffer {
-    let mut app = App::new(&cfg());
+    let mut app = App::new(&cfg(), world());
     setup(&mut app);
     app.on_resize(w, h);
     let theme = Theme::new(cfg().theme);
@@ -99,7 +105,7 @@ fn draw_never_panics_on_a_too_small_frame_even_without_a_prior_resize() {
     // trusted `app.mode`/`app.size` here instead of the frame it was actually given, this would
     // index outside the buffer instead of drawing the too-small notice.
     for (w, h) in [(100u16, 20u16), (59u16, 23u16)] {
-        let app = App::new(&cfg());
+        let app = App::new(&cfg(), world());
         let theme = Theme::new(cfg().theme);
         let backend = TestBackend::new(w, h);
         let mut term = Terminal::new(backend).unwrap();

@@ -17,12 +17,14 @@ pub fn draw_hud(buf: &mut Buffer, layout: Layout, state: &GameState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{debug_room, GameState as GS};
+    use crate::game::GameState as GS;
     use ratatui::layout::Rect;
+    use std::rc::Rc;
 
     #[test]
     fn hud_contains_hp_label() {
-        let state = GS::new(1, debug_room());
+        let world = Rc::new(crate::content::load().expect("embedded world validates"));
+        let state = GS::new(1, world);
         let layout = Layout::compute(60, 24);
         let mut buf = Buffer::empty(Rect::new(0, 0, 60, 24));
         draw_hud(&mut buf, layout, &state);

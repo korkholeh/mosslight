@@ -1,7 +1,9 @@
 //! Screen/mode state machine, pause semantics, and the clock-free `Pacer` (spec §9).
 
+use std::rc::Rc;
+
 use crate::config::Config;
-use crate::game::{debug_room, update, Action, GameState, Tick};
+use crate::game::{update, Action, GameState, Tick, World};
 use crate::input::{coalesce, drop_pending};
 
 pub const MIN_COLS: u16 = 60;
@@ -61,14 +63,19 @@ pub struct App {
     pub quit: Option<ExitReason>,
     tick_counter: Tick,
     seed: u64,
+    world: Rc<World>,
 }
 
 impl App {
-    pub fn new(cfg: &Config) -> Self {
+    /// `world` is the already-parsed-and-validated world (`main`'s content preflight, or a test's
+    /// own `content::load()`) — `App` never re-parses or re-validates content itself, so there is
+    /// no unwrap-family call on the content path here (CLAUDE.md) and no risk of gameplay running
+    /// against a different world than the one the preflight checked.
+    pub fn new(cfg: &Config, world: Rc<World>) -> Self {
         App {
             mode: Mode::MainMenu,
             prev_mode: Mode::MainMenu,
-            state: GameState::new(cfg.seed, debug_room()),
+            state: GameState::new(cfg.seed, Rc::clone(&world)),
             menu: MenuCursor::NewGame,
             message: String::new(),
             size: (MIN_COLS, MIN_ROWS),
@@ -76,6 +83,7 @@ impl App {
             quit: None,
             tick_counter: 0,
             seed: cfg.seed,
+            world,
         }
     }
 
@@ -136,7 +144,7 @@ impl App {
                     self.dirty = true;
                 }
                 MenuCursor::NewGame => {
-                    self.state = GameState::new(self.seed, debug_room());
+                    self.state = GameState::new(self.seed, Rc::clone(&self.world));
                     self.set_mode(Mode::Playing);
                 }
                 MenuCursor::Help => self.set_mode(Mode::Help),

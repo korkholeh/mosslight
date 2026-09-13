@@ -65,7 +65,7 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
     let block = Block::default().borders(Borders::ALL);
     Widget::render(block, layout.scene_area(), buf);
 
-    for (ty, row) in state.room.tiles.iter().enumerate() {
+    for (ty, row) in state.room().tiles.iter().enumerate() {
         for (tx, tile) in row.iter().enumerate() {
             let kind = Kind::from(*tile);
             let col = layout.tile_col(tx as u8);

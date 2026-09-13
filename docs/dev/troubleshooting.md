@@ -47,6 +47,21 @@ or `TERM` is unset or `dumb`. This check runs before raw mode is ever touched, b
 **Fix:** run interactively in a real terminal, or over `ssh -t` (the `-t` flag forces a PTY). This
 is not a bug to work around; there is no way to play mosslight without an interactive terminal.
 
+## The game exits immediately with a list of content errors and code 2
+
+**Symptom:** one or more lines like
+`room.west_grove: spawn 'spawn.west_grove.east' at (3, 7) is not walkable (Wall)` on stderr,
+nothing rendered, exit code 2.
+
+**Cause:** `content::validate` rejected the world before the terminal was ever touched (spec §7,
+§15) — either the embedded `assets/world.ron`, or the file passed to the hidden
+`--debug-content PATH` flag. This check runs before the TTY/`TERM` preflight, so it fires even
+without a real terminal.
+
+**Fix:** read `docs/dev/content.md` for the tile table and the id convention, fix the offending
+room/door/spawn in the RON file named by the error, and re-run
+`cargo test --locked --test content` to confirm the fix before rebuilding the binary.
+
 ## The hero does not seem to move, or only moves once after several key presses
 
 This was a real bug during phase 1 development (fixed before release): the main loop discarded a

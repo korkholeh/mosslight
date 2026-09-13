@@ -4,6 +4,15 @@ All notable user-visible changes to Mosslight are recorded here.
 
 ## Unreleased
 
+- The overworld is now real content: nine hand-authored rooms in a 3x3 grid
+  (`assets/world.ron`), connected by 24 two-way doors with no dead ends. New Game drops the hero
+  into the lighthouse; walking through a door moves the hero into the neighboring room at its
+  entry spawn.
+- A content validator (`content::validate`) checks the world at startup, in tests, and in CI:
+  legal geometry, unique ids, door/spawn targets, spawn placement, door-tile correspondence,
+  two-way door reciprocity, and a reachability search that proves every room is reachable and no
+  key is locked behind the door it opens. A world that fails to validate is refused before the
+  terminal is touched.
 - First playable build: a main menu (Continue / New Game / Help / Quit), and New Game drops the
   hero into one 24x16 room that can be walked around with the arrow keys or WASD.
 - Esc pauses and resumes; Q asks for confirmation before quitting; Ctrl+C does the same as Q. Below

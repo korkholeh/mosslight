@@ -27,6 +27,9 @@ impl Theme {
                 Kind::Floor => Color::DarkGray,
                 Kind::Water => Color::Cyan,
                 Kind::Bush => Color::LightGreen,
+                Kind::Door => Color::Yellow,
+                Kind::Stairs => Color::Gray,
+                Kind::Pit => Color::DarkGray,
             },
         }
     }
@@ -36,7 +39,16 @@ impl Theme {
 mod tests {
     use super::*;
 
-    const ALL_KINDS: [Kind; 5] = [Kind::Hero, Kind::Wall, Kind::Floor, Kind::Water, Kind::Bush];
+    const ALL_KINDS: [Kind; 8] = [
+        Kind::Hero,
+        Kind::Wall,
+        Kind::Floor,
+        Kind::Water,
+        Kind::Bush,
+        Kind::Door,
+        Kind::Stairs,
+        Kind::Pit,
+    ];
 
     #[test]
     fn every_theme_uses_the_identical_glyph_table() {

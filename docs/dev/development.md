@@ -41,6 +41,9 @@ Clippy runs with `-D warnings`: no warning is ever left for later, in this phase
   process exits.
 - `RUST_BACKTRACE=1 cargo run --release -- --debug-panic --save-dir /tmp/mosslight-scratch` gives a
   full backtrace for the deliberate panic path.
+- `--debug-content PATH` (hidden, not in `--help`) validates `PATH` instead of the embedded
+  `assets/world.ron`, so the content startup refusal (spec §7/§15) can be exercised against a real
+  broken file. See `docs/dev/content.md` for the RON schema and the validator's checks.
 - If a manual run leaves the terminal in a bad state (rare — see
   `docs/dev/troubleshooting.md`), run `reset`.
 

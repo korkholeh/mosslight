@@ -1,10 +1,13 @@
 //! Movement and collision (spec §6, §13): steps, blocking, cooldown, and determinism.
 
+use std::rc::Rc;
+
 use mosslight::game::tuning::HERO_STEP_TICKS;
-use mosslight::game::{debug_room, update, Action, Facing, GameEvent, GameState, Pos};
+use mosslight::game::{update, Action, Facing, GameEvent, GameState, Pos};
 
 fn fresh() -> GameState {
-    GameState::new(1, debug_room())
+    let world = Rc::new(mosslight::content::load().expect("embedded world validates"));
+    GameState::new(1, world)
 }
 
 #[test]
@@ -52,19 +55,21 @@ fn blocked_by_wall_keeps_position_sets_facing() {
 
 #[test]
 fn blocked_by_water() {
+    // room.lighthouse has a 2x2 water patch at (3..=4, 3..=4).
     let mut state = fresh();
-    state.hero.pos = Pos { x: 16, y: 5 };
+    state.hero.pos = Pos { x: 2, y: 3 };
     let events = update(&mut state, &[Action::MoveEast], 0);
-    assert_eq!(state.hero.pos, Pos { x: 16, y: 5 });
+    assert_eq!(state.hero.pos, Pos { x: 2, y: 3 });
     assert!(matches!(events[0], GameEvent::MoveBlocked { .. }));
 }
 
 #[test]
 fn blocked_by_bush() {
+    // room.lighthouse has a 2x2 bush patch at (18..=19, 11..=12).
     let mut state = fresh();
-    state.hero.pos = Pos { x: 3, y: 10 };
+    state.hero.pos = Pos { x: 18, y: 10 };
     let events = update(&mut state, &[Action::MoveSouth], 0);
-    assert_eq!(state.hero.pos, Pos { x: 3, y: 10 });
+    assert_eq!(state.hero.pos, Pos { x: 18, y: 10 });
     assert!(matches!(events[0], GameEvent::MoveBlocked { .. }));
 }
 

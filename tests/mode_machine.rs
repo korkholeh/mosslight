@@ -1,10 +1,15 @@
 //! Mode transitions and pause semantics (spec §5, §9, §12).
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use mosslight::app::{App, ExitReason, Mode};
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
-use mosslight::game::Action;
+use mosslight::game::{Action, World};
+
+fn world() -> Rc<World> {
+    Rc::new(mosslight::content::load().expect("embedded world validates"))
+}
 
 fn cfg() -> Config {
     Config {
@@ -15,20 +20,26 @@ fn cfg() -> Config {
         save_dir: PathBuf::from("/tmp"),
         seed: 1,
         debug_panic: false,
+        debug_content: None,
     }
 }
 
 #[test]
 fn new_game_enters_playing_at_spawn() {
-    let mut app = App::new(&cfg());
+    let mut app = App::new(&cfg(), world());
     app.apply(&[Action::Confirm]);
     assert_eq!(app.mode, Mode::Playing);
-    assert_eq!(app.state.hero.pos, app.state.room.spawn);
+    let expected = app
+        .state
+        .world
+        .spawn_pos(app.state.room, "spawn.lighthouse.start")
+        .expect("the world's start spawn must resolve");
+    assert_eq!(app.state.hero.pos, expected);
 }
 
 #[test]
 fn esc_pauses_and_stops_simulation() {
-    let mut app = App::new(&cfg());
+    let mut app = App::new(&cfg(), world());
     app.apply(&[Action::Confirm]);
     app.apply(&[Action::Cancel]);
     assert_eq!(app.mode, Mode::Paused);
@@ -37,7 +48,7 @@ fn esc_pauses_and_stops_simulation() {
 
 #[test]
 fn esc_resumes_and_drops_a_trailing_move_from_the_same_batch() {
-    let mut app = App::new(&cfg());
+    let mut app = App::new(&cfg(), world());
     app.apply(&[Action::Confirm]);
     let sim_actions = app.apply(&[Action::MoveNorth]);
     assert_eq!(sim_actions, vec![Action::MoveNorth]);
@@ -52,7 +63,7 @@ fn esc_resumes_and_drops_a_trailing_move_from_the_same_batch() {
 
 #[test]
 fn quit_requires_confirmation() {
-    let mut app = App::new(&cfg());
+    let mut app = App::new(&cfg(), world());
     app.apply(&[Action::Quit]);
     assert_eq!(app.mode, Mode::ConfirmQuit);
     app.apply(&[Action::Cancel]);
@@ -65,7 +76,7 @@ fn quit_requires_confirmation() {
 
 #[test]
 fn resize_too_small_stops_ticks_then_recovery_enters_paused() {
-    let mut app = App::new(&cfg());
+    let mut app = App::new(&cfg(), world());
     app.apply(&[Action::Confirm]);
     let before = app.state.tick;
     app.on_resize(59, 24);
@@ -79,7 +90,7 @@ fn resize_too_small_stops_ticks_then_recovery_enters_paused() {
 
 #[test]
 fn quit_in_too_small_mode_quits_immediately_with_no_confirmation() {
-    let mut app = App::new(&cfg());
+    let mut app = App::new(&cfg(), world());
     app.apply(&[Action::Confirm]); // -> Playing
     app.on_resize(40, 15);
     assert_eq!(app.mode, Mode::TooSmall);
@@ -94,7 +105,7 @@ fn quit_in_too_small_mode_quits_immediately_with_no_confirmation() {
 
 #[test]
 fn help_returns_to_previous_mode() {
-    let mut app = App::new(&cfg());
+    let mut app = App::new(&cfg(), world());
     app.apply(&[Action::Help]);
     assert_eq!(app.mode, Mode::Help);
     app.apply(&[Action::Cancel]);

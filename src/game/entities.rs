@@ -3,7 +3,9 @@
 use super::state::Tick;
 use super::tuning::HERO_STEP_TICKS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct Pos {
     pub x: u8,
     pub y: u8,

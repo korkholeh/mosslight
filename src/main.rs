@@ -2,6 +2,7 @@
 
 use std::io::{self};
 use std::process::ExitCode;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use ratatui::backend::CrosstermBackend;
@@ -11,8 +12,9 @@ use ratatui::Terminal;
 
 use mosslight::app::{advance_iteration, App, Pacer};
 use mosslight::config::{Config, Env, OutputStream};
+use mosslight::content;
 use mosslight::game::tuning::INPUT_EVENT_HARD_CAP;
-use mosslight::game::Action;
+use mosslight::game::{Action, World};
 use mosslight::input::{apply_overflow_policy, coalesce, drain_ready, map_key, EventSource};
 use mosslight::render::{self, Theme};
 use mosslight::terminal::{
@@ -33,6 +35,11 @@ fn main() -> ExitCode {
         }
     };
 
+    let world = match content_preflight(&config) {
+        Ok(w) => w,
+        Err(code) => return exit_code(code),
+    };
+
     let probe = Probe {
         stdin_tty: io::stdin().is_tty(),
         stdout_tty: io::stdout().is_tty(),
@@ -44,7 +51,7 @@ fn main() -> ExitCode {
     }
 
     let mut diagnostics = Diagnostics::new();
-    let code = run(&config, &mut diagnostics);
+    let code = run(&config, &mut diagnostics, world);
 
     diagnostics.flush_to_stderr();
     exit_code(code)
@@ -54,6 +61,32 @@ fn exit_code(code: i32) -> ExitCode {
     u8::try_from(code)
         .map(ExitCode::from)
         .unwrap_or(ExitCode::FAILURE)
+}
+
+/// Validates the world before anything touches the terminal, so a bad world is reported even in
+/// a non-TTY environment (spec §7/§15). `--debug-content PATH` reads that file instead of the
+/// embedded string; reading the file is `main`'s job, `content::parse` stays pure. Returns the
+/// parsed world so `run`/`App::new` play the exact world this preflight checked, rather than
+/// re-parsing (and, with `--debug-content`, potentially playing a *different* world than the one
+/// validated — round-1 review). `Err` means errors are already printed to stderr.
+fn content_preflight(config: &Config) -> Result<World, i32> {
+    let src = match &config.debug_content {
+        Some(path) => match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!(
+                    "failed to read --debug-content file {}: {e}",
+                    path.display()
+                );
+                return Err(2);
+            }
+        },
+        None => content::EMBEDDED.to_string(),
+    };
+    content::parse(&src).map_err(|errors| {
+        eprintln!("{}", content::report(&errors));
+        2
+    })
 }
 
 /// Restores the terminal from a bare `CrosstermOps`, independent of any live `TerminalGuard`.
@@ -66,7 +99,7 @@ fn restore_raw_terminal() {
     let _ = ops.disable_raw();
 }
 
-fn run(config: &Config, diagnostics: &mut Diagnostics) -> i32 {
+fn run(config: &Config, diagnostics: &mut Diagnostics, world: World) -> i32 {
     let mut guard = match TerminalGuard::enter(CrosstermOps) {
         Ok(g) => g,
         Err(e) => {
@@ -99,7 +132,7 @@ fn run(config: &Config, diagnostics: &mut Diagnostics) -> i32 {
         }
     };
 
-    let mut app = App::new(config);
+    let mut app = App::new(config, Rc::new(world));
     let theme = Theme::new(config.theme);
     let mut pacer = Pacer::new(config.fps.as_u32());
     let mut last_instant = Instant::now();

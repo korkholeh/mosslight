@@ -89,6 +89,11 @@ struct Cli {
     /// path for real (hidden: not part of the public §12 surface).
     #[arg(long, hide = true)]
     debug_panic: bool,
+
+    /// Validate this RON file instead of the embedded world, to exercise the content startup
+    /// refusal for real (hidden: not part of the public §12 surface).
+    #[arg(long, hide = true)]
+    debug_content: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +105,7 @@ pub struct Config {
     pub save_dir: PathBuf,
     pub seed: u64,
     pub debug_panic: bool,
+    pub debug_content: Option<PathBuf>,
 }
 
 /// Which stream a [`StartupError`]'s message belongs on. `--help`/`--version` are normal output on
@@ -169,6 +175,7 @@ impl Config {
             save_dir,
             seed: cli.seed.unwrap_or(DEFAULT_SEED),
             debug_panic: cli.debug_panic,
+            debug_content: cli.debug_content,
         })
     }
 }
