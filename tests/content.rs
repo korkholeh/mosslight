@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::fs;
 
-use mosslight::content::{self, ContentError, LockKind};
+use mosslight::content::{self, ContentError, EnemyKind, LockKind, PuzzleKind, Reward, RoomKind};
 
 fn fixture(name: &str) -> String {
     fs::read_to_string(format!("tests/fixtures/{name}")).unwrap_or_else(|e| {
@@ -22,6 +22,86 @@ fn real_world_validates() {
     // The acceptance criterion names `content::validate` itself, not just `load` (which already
     // implies it via `loader::parse` -> `collect_errors`) — exercise the named entry point too.
     assert!(content::validate(&world).is_ok());
+}
+
+/// The whole §2 content table asserted against the embedded world in one place, so it stops
+/// being something a human has to re-count by hand: 9 overworld + 6 dungeon rooms, 3 NPCs, all 3
+/// regular enemy kinds plus exactly 1 boss, both required items, both puzzle kinds, at least 3
+/// secrets, and at least 2 `HeartContainer`s (so 5 hearts — `state.rs`'s cap — is actually
+/// reachable).
+#[test]
+fn the_embedded_world_meets_the_spec_content_table() {
+    let world = content::load().expect("assets/world.ron must validate");
+
+    let overworld = world
+        .rooms
+        .iter()
+        .filter(|r| r.kind == RoomKind::Overworld)
+        .count();
+    let dungeon = world
+        .rooms
+        .iter()
+        .filter(|r| r.kind == RoomKind::Dungeon)
+        .count();
+    assert_eq!(overworld, 9, "spec §2 wants 9 overworld rooms");
+    assert_eq!(dungeon, 6, "spec §2 wants 6 dungeon rooms");
+
+    let npc_count: usize = world.rooms.iter().map(|r| r.npcs.len()).sum();
+    assert_eq!(npc_count, 3, "spec §2 wants exactly 3 NPCs");
+
+    let mut has_slime = false;
+    let mut has_bat = false;
+    let mut has_guardian = false;
+    let mut boss_count = 0;
+    for spawn in world.rooms.iter().flat_map(|r| r.enemies.iter()) {
+        match spawn.kind {
+            EnemyKind::Slime => has_slime = true,
+            EnemyKind::Bat => has_bat = true,
+            EnemyKind::Guardian => has_guardian = true,
+            EnemyKind::Boss => boss_count += 1,
+        }
+    }
+    assert!(
+        has_slime && has_bat && has_guardian,
+        "spec §2 wants all 3 regular enemy kinds"
+    );
+    assert_eq!(boss_count, 1, "spec §2 wants exactly 1 boss");
+
+    let chests: Vec<_> = world.rooms.iter().flat_map(|r| r.chests.iter()).collect();
+    assert!(
+        chests.iter().any(|c| c.contains == Reward::Sword),
+        "spec §2 wants a sword"
+    );
+    assert!(
+        chests.iter().any(|c| c.contains == Reward::Lantern),
+        "spec §2 wants a lantern"
+    );
+    let heart_containers = chests
+        .iter()
+        .filter(|c| c.contains == Reward::HeartContainer)
+        .count();
+    assert!(
+        heart_containers >= 2,
+        "spec §2's 5-heart maximum needs at least 2 HeartContainers on top of the starting 3 \
+         hearts, found {heart_containers}"
+    );
+
+    let secret_count = chests.iter().filter(|c| c.secret).count();
+    assert!(secret_count >= 3, "spec §2 wants at least 3 secrets");
+
+    let mut has_block_on_plates = false;
+    let mut has_torch_sequence = false;
+    for puzzle in world.rooms.iter().flat_map(|r| r.puzzles.iter()) {
+        match puzzle.kind {
+            PuzzleKind::BlockOnPlates => has_block_on_plates = true,
+            PuzzleKind::TorchSequence => has_torch_sequence = true,
+            PuzzleKind::StepPlates => {}
+        }
+    }
+    assert!(
+        has_block_on_plates && has_torch_sequence,
+        "spec §6 wants both a block-on-plates and a torch-sequence puzzle"
+    );
 }
 
 #[test]

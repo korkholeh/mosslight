@@ -17,6 +17,9 @@ use mosslight::game::tuning::{ROOM_H, ROOM_W};
 use mosslight::game::{update, Action, Facing, GameEvent, GameState, Pos, Tick, World};
 use mosslight::save::{MemorySaveIo, SaveIo};
 
+pub mod metrics;
+pub mod route;
+
 pub fn world() -> Rc<World> {
     Rc::new(mosslight::content::load().expect("embedded world validates"))
 }

@@ -716,6 +716,13 @@ pub struct Due {
     pub draw: bool,
 }
 
+/// The draw gate: a frame is drawn only when the pacer says a frame is due **and** something
+/// changed since the last draw. Consumes `app`'s dirty bit via `take_dirty`, so it must be called
+/// exactly once per loop iteration — calling it twice would silently swallow the second draw.
+pub fn draw_due(app: &mut App, due: Due) -> bool {
+    due.draw && app.take_dirty()
+}
+
 /// Clock-free pacing arithmetic: elapsed time arrives as integer nanoseconds, so
 /// fps-independence is provable without a terminal or a real clock.
 pub struct Pacer {

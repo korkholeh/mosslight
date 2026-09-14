@@ -25,6 +25,26 @@ Full gate, run before every commit and in CI:
 cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --locked
 ```
 
+## Running the host-only scripts
+
+Three scripts drive a real PTY via `expect` and are never run by `cargo test` or CI — they need a
+real controlling terminal, which this repo's automated suite deliberately does not depend on
+(CLAUDE.md forbids a PTY test harness):
+
+```sh
+./scripts/terminal-restore-check.sh   # stty -a before/after normal exit, --debug-panic, resize
+./scripts/manual-checks.sh            # the spec §13 manual-check list, one case each, evidence-grepped
+./scripts/measure-cpu.sh              # %cpu/RSS sampled once a second across 60s play + 60s pause
+```
+
+Run them from the repo root; each builds its own release binary and uses a scratch `--save-dir`
+that is cleaned up on exit. All three run cleanly in an unattended sandbox with no controlling
+TTY of its own — `expect`'s `spawn` allocates a real, sized pty for the child regardless of
+whether the *parent* shell has one; see `docs/dev/verification-report.md` for a full transcript
+from exactly such a sandbox. See `docs/dev/troubleshooting.md` if one hangs or shows a garbled
+transcript for a different reason (an unsized pty, or a keystroke racing the game's raw-mode
+setup).
+
 ## What each integration file covers
 
 | File | Covers |
@@ -42,7 +62,7 @@ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings &&
 | `tests/save.rs` | The save file layer (`save::{load,store,stage,commit}`): round-trips every field of a populated `SaveFile`; empty/truncated/garbage saves load as `Corrupt` without modifying the file; a newer `format_version` is refused on load and store; a crash simulated between `stage` and the rename leaves `save.json` and its `.bak` both intact; a death state is refused; a missing file is `Missing` not `Corrupt`; a grep test that `src/save.rs` calls no `unwrap`/`expect`/`panic!`/`unreachable!` outside its own unit tests. `SaveFile::capture`/`restore`: round-trips real progress by discovering real chest/torch/puzzle/door refs in the embedded world; drops an unknown id while keeping the rest; falls back to the room's first spawn when the saved position is not walkable; zeroes the tick and every hero timer. The `App` layer (via `tests/common::memory_io`/`ScratchDir`): each of the four autosave triggers writes exactly once; a death state never overwrites the last usable save; manual save is refused during combat and accepted outside it; loading respawns enemies, grants the safe window, and restarts a defeated boss without it respawning; `New Game` over an existing run requires confirmation; a corrupt slot offers backup restore and never overwrites the file; a future-version slot is never overwritten by a new run's autosave |
 | `tests/terminal_guard.rs` | Restoration order and idempotence via `RecordingOps`, restore-before-panic-message, a partial failure during `enter()` still disabling raw mode |
 | `tests/loop_timing.rs` | `Pacer`/`advance_iteration` in isolation: byte-identical `GameState` across fps 10/20/30 for the same action schedule, catch-up capped at 5 steps with surplus discarded, draw cadence scaling with fps while tick count does not, a keypress in a `sim_steps == 0` iteration is not lost, held-key movement lands at the cooldown rate |
-| `tests/content.rs` | `content::validate` against the real `assets/world.ron` (15 rooms: 9 overworld with distinct 3x3 `map_index` values, plus the 6-room dungeon) and against `tests/fixtures/`: `base.ron` validates, and each `broken_*.ron` fixture is rejected with its specific named `ContentError` variant (missing door target, non-reciprocal door, spawn in a wall, duplicate id, wrong dimensions, illegal tile, key behind its own lock, ember unreachable, a spawn walled into its own pocket, an unknown RON field, an object on a non-floor tile, two objects on one tile, an unknown plate id, a reveal position that is not `Hidden`, a flag never set by any dialogue node, a secret chest on the main route, a secret chest holding a route-critical reward, an unresolvable `route.goal`, a block puzzle naming no block, a torch sequence naming unresolved torches, boss-only fields on a regular enemy, a beacon outside `route.home`, a block puzzle with no pushable plate, the ember behind an unreachable boss); `broken_three_defects.ron` returns three distinct variants from one call |
+| `tests/content.rs` | `content::validate` against the real `assets/world.ron` (15 rooms: 9 overworld with distinct 3x3 `map_index` values, plus the 6-room dungeon) and against `tests/fixtures/`: `base.ron` validates, and each `broken_*.ron` fixture is rejected with its specific named `ContentError` variant (missing door target, non-reciprocal door, spawn in a wall, duplicate id, wrong dimensions, illegal tile, key behind its own lock, ember unreachable, a spawn walled into its own pocket, an unknown RON field, an object on a non-floor tile, two objects on one tile, an unknown plate id, a reveal position that is not `Hidden`, a flag never set by any dialogue node, a secret chest on the main route, a secret chest holding a route-critical reward, an unresolvable `route.goal`, a block puzzle naming no block, a torch sequence naming unresolved torches, boss-only fields on a regular enemy, a beacon outside `route.home`, a block puzzle with no pushable plate, the ember behind an unreachable boss); `broken_three_defects.ron` returns three distinct variants from one call; `the_embedded_world_meets_the_spec_content_table` asserts the whole §2 table in one place (room counts, NPCs, all 3 enemy kinds + exactly 1 boss, sword + lantern, both puzzle kinds, ≥3 secrets, ≥2 `HeartContainer`s) |
 | `tests/transitions.rs` | Walking through every door in the real world: the hero lands in the declared `to_room` on a walkable, non-door tile, and the reciprocal door leads back adjacent to the door taken; `progress.visited` grows by exactly one per newly entered room and not on re-entry; `GameEvent::RoomEntered` fires once per transition, never for the start room, and not at all when a move next to a door is blocked |
 | `tests/content_startup.rs` | Spawns the real binary with the hidden `--debug-content PATH` flag: a broken fixture exits 2 with the content error list on stderr (and not the TTY-refusal message, proving the abort happens before raw mode); a valid fixture passes the content preflight |
 | `tests/combat.rs` | The sword hitbox (exactly the faced tile, four facings, side/rear tiles miss), the per-swing `hit` list (two enemies on the struck tile each damaged at most once), the cooldown (an `Attack` inside it is dropped, the next one outside it lands), contact damage and its invulnerability window, `combat::knockback` stopping adjacent to a wall and never landing on a door tile, and a killed enemy staying dead (no further movement or `AiState` change) |
@@ -51,7 +71,12 @@ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings &&
 | `tests/puzzles.rs` | `BlockOnPlates` and `TorchSequence` against the real dungeon rooms: solving each, `BlockPushed`/`PuzzleReset` visible feedback, `block_push_target` refusing a door/wall target, a block blocking movement, re-entry resetting an unsolved puzzle while a solved one (and its reveal) survives, and that every wrong torch order or block overshoot still leaves the room solvable |
 | `tests/dungeon.rs` | Keys and locked doors: unlocking spends exactly one key, a second pass through the same door is free, a synthetic two-sided-lock fixture proves the reciprocal side is freed by the same unlock, a locked door with no key blocks without going negative; the beacon without the ember only reports a cold brazier; the finished world's room/content counts (9 overworld + 6 dungeon, 3 NPCs, all 3 regular enemy kinds, exactly one boss, ≥ 3 secrets) |
 | `tests/boss.rs` | The two-phase boss: the phase-two threshold, each phase's distinct `strike_tiles` shape, a telegraph always precedes a strike by at least `TELEGRAPH_MIN_TICKS`, damage lands only during `BossVulnerable`, `HeroDamaged` never fires without a `BossStruck` alongside it (no contact damage), a reactive no-damage scripted kill, the ember/`defeat_flag` grant, and no respawn on re-entry |
-| `tests/playthrough.rs` | The full headless run: `Runner::new` to `GameEvent::GameWon` using only ordinary `Action`s (dialogue, item pickups, the mill puzzle, the dungeon's block/torch puzzles, a reactive boss fight, the beacon) with the milestone order (sanctuary learned → sword → lantern → dungeon entered → first key → block puzzle → torch sequence → second key → boss phase two → ember → `GameWon`) verified against the actual event stream; a tick-ceiling check well under the spec §15 target playthrough length |
+| `tests/playthrough.rs` | The full headless run, driven through `tests/common/route.rs::play_to_victory` (shared with `tests/balance.rs`): `Runner::new` to `GameEvent::GameWon` using only ordinary `Action`s (dialogue, item pickups, the mill puzzle, the dungeon's block/torch puzzles, a reactive boss fight, the beacon) with the milestone order (sanctuary learned → sword → lantern → dungeon entered → first key → block puzzle → torch sequence → second key → boss phase two → ember → `GameWon`) verified against the actual event stream; a tick-ceiling check well under the spec §15 target playthrough length |
+| `tests/balance.rs` | The §1 30-45 minute target as a test, not an intention: `src/game/balance.rs::estimate_first_playthrough`, fed the tick count `tests/common/route.rs::play_to_victory` actually took, lands inside `TARGET_MIN_TICKS..=TARGET_MAX_TICKS`; the optimal route itself stays under 3 simulated minutes (a tuning change that inflates travel shows up here first); the estimate's combat term equals the sum of `engage_ticks` over every authored non-boss spawn (so deleting/adding an enemy moves the number) |
+| `tests/metrics.rs` | Terminal output volume (spec §13) via `tests/common/metrics::Harness`, the real `CrosstermBackend` write path over a byte-counting writer: active play (a live-enemy room, 60 simulated seconds) stays under the 200 KB/min budget and prints bytes/min for the report; a paused game and a static main menu write exactly zero bytes after their first frame; output scales with `--fps` while the simulated tick count does not (RISKS #8) |
+| `tests/docs_cli.rs` | `docs/user/cli.md`'s flag table against `config::cli_command()`'s real clap surface: every non-hidden flag is documented and vice versa, the two hidden flags never appear in the table, and every documented enum flag's listed values match clap's own `possible_values` |
+| `tests/docs_controls.rs` | `docs/user/controls.md`'s key table against the real `input::map_key`, across every `Mode`: every key that maps to an action somewhere is named in the doc, and every key token the doc names actually maps to something |
+| `tests/no_stubs.rs` | Walks `src/` for `todo!`/`unimplemented!`/`TODO`/`FIXME`/`XXX`/`unreachable!("stub` and `assets/world.ron` for the word `placeholder` — main-route stub freedom as a test instead of a review habit |
 
 ## Adding a case
 
@@ -98,9 +123,15 @@ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings &&
   resurrect the abandoned run, but they report it as "no save yet" even though the old `save.json` is
   still intact on disk, and a second New Game in that narrow window skips the overwrite confirmation.
   Deferred in the same round-2 review as narrow and self-resolving (one room transition closes it).
-- `scripts/terminal-restore-check.sh` drives a real PTY by hand; it is not part of `cargo test` and
-  is not run in CI. See `docs/dev/troubleshooting.md` for the sandbox limitation that keeps it from
-  running cleanly in an unattended environment.
+- `scripts/terminal-restore-check.sh`, `scripts/manual-checks.sh` and `scripts/measure-cpu.sh` all
+  drive a real PTY by hand; none is part of `cargo test` and none runs in CI. All three have been run
+  to completion in an unattended sandbox with no controlling TTY of its own — see
+  `docs/dev/verification-report.md` for the transcripts. A phase-07 review pass initially recorded
+  the wrong root cause for an earlier failed attempt ("the sandbox cannot drive a pty session"); the
+  actual causes were four bugs in `manual-checks.sh` itself (a too-short settle delay, needles
+  checked against un-normalized transcripts, a needle for text the play screen never renders, a case
+  that never sent a quit key, and a `pipefail` trap on a check's own success case) — see
+  `.autodev/DECISIONS.md`'s `phase-07/review-r2` entry for the full diagnosis.
 - Linux, a real interactive SSH session with a PTY, and the ~150 ms RTT playability check are not
   reachable from this development host; CI (`ubuntu-latest` in `.github/workflows/ci.yml`) is the
   Linux evidence for build and test, not for interactive play. See ADR 0008.

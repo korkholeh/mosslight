@@ -26,6 +26,8 @@ A hidden `--debug-panic` flag (not part of the stable CLI surface) panics delibe
 terminal guard is up, to exercise the restore-before-panic path for real; see
 `scripts/terminal-restore-check.sh`.
 
+Running over SSH or under tmux/screen: see `docs/user/ssh.md`.
+
 ### The Unicode decision
 
 There is no `--unicode` flag. §4 requires "only characters of verified width," and every Unicode

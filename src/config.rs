@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::error::ErrorKind;
-use clap::{Parser, ValueEnum};
+use clap::{CommandFactory, Parser, ValueEnum};
 
 /// ASCII is the only glyph set: Unicode was withdrawn (see `docs/user/cli.md` and DECISIONS.md —
 /// every Unicode block that would improve on ASCII is `East_Asian_Width=Ambiguous`, which can
@@ -122,6 +122,13 @@ pub struct StartupError {
     pub message: String,
     pub code: i32,
     pub stream: OutputStream,
+}
+
+/// The parsed clap command, for `tests/docs_cli.rs` to diff against `docs/user/cli.md` — `Cli`
+/// itself stays private so nothing outside this module constructs one except through
+/// `Config::from_args`; `Parser::command()` cannot be reached from outside otherwise.
+pub fn cli_command() -> clap::Command {
+    Cli::command()
 }
 
 impl Config {

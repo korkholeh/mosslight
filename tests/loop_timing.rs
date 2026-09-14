@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use mosslight::app::{advance_iteration, App, Pacer};
+use mosslight::app::{advance_iteration, draw_due, App, Pacer};
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
 use mosslight::game::{tuning, Action, GameState, World};
 use mosslight::save::MemorySaveIo;
@@ -182,7 +182,7 @@ fn no_draw_is_due_while_playing_idle_with_no_actions() {
     let mut spurious_draws = 0;
     for _ in 0..100 {
         let due = advance_iteration(&mut app, &mut pacer, &mut pending, &[], tick_ns);
-        if due.draw && app.take_dirty() {
+        if draw_due(&mut app, due) {
             spurious_draws += 1;
         }
     }
@@ -203,7 +203,7 @@ fn no_draw_is_due_while_idle_with_nothing_dirty() {
         for _ in 0..due.sim_steps {
             app.tick(&[]);
         }
-        if due.draw && app.take_dirty() {
+        if draw_due(&mut app, due) {
             spurious_draws += 1;
         }
     }
