@@ -1,0 +1,45 @@
+Round-2 review status (2026-09-13) — this file previously held a transcript from a clean run of
+scripts/terminal-restore-check.sh. Round-2 review (REVIEW-r2.md) found that transcript was captured
+in a 0x0 pty (this sandbox allocates an unsized pty for `expect` since it has no controlling
+terminal of its own), so `terminal::size()` read 0x0, every case landed straight in `Mode::TooSmall`
+and rendered nothing, and the transcript's scenario labels ("normal exit", "resize to 100x20")
+described paths that never actually ran. That transcript has been removed rather than kept as
+misleading evidence (CLAUDE.md: do not claim an environment was verified unless it was actually
+run).
+
+What changed in scripts/terminal-restore-check.sh to address the finding:
+- Every case now sets an explicit pty size (`stty rows 24 columns 80`) before the binary starts,
+  instead of relying on `expect`'s default/inherited size.
+- The resize case targets `stty` at the spawned pty's own slave device
+  (`< $spawn_out(slave,name)`) instead of `expect`'s own controlling terminal, which is what the
+  round-1 transcript's resize case actually hit (see REVIEW-r2.md's second finding).
+- The transcript is now asserted (not just eyeballed) to contain content that could only have been
+  drawn by the scenario each case claims — the `HP` HUD string, the `Quit?` confirm dialog, the
+  `panicked` message, the `60x24` too-small notice, and each case's expected exit code — so a
+  misconfigured pty, or a scenario that silently exercised the wrong mode, fails the check instead
+  of passing with an empty or mislabelled transcript.
+- `match_max` is raised from Expect's 2000-byte default (smaller than one rendered frame here) and
+  every wait between keystrokes now actively drains the spawned process's output instead of a bare
+  Tcl `sleep`, which does not read anything.
+
+What is honestly still unresolved: a full clean run of the fixed script in *this* sandbox remains
+unreliable. Across several runs, `expect`'s pty allocation and this sandbox's process scheduling
+produce a timing race where a keystroke sent shortly after `spawn` lands while the spawned shell
+is still in canonical/echo mode (before the mosslight binary has enabled raw mode), so the
+keystroke is consumed as ordinary shell input instead of reaching the running program — the
+transcript then shows the literal character echoed in cleartext ahead of any rendered output,
+and the run times out waiting for an exit that never happens. This reproduces with or without the
+game's own code in the picture: a minimal `python3 pty.fork()` harness (not going through `expect`
+at all) hit the exact same failure mode whenever it wrote a keystroke without first draining the
+child's output backlog, and it exited correctly and immediately, every time across repeated runs,
+once the harness actively drained output before and while sending keys. That is independent
+evidence that mosslight's own resize/Quit handling in `Mode::TooSmall` and the normal
+Q-then-Enter-confirm path are correct; the remaining gap is this sandbox's `expect`/pty timing, not
+application behaviour, and matches the pre-existing, already-logged limitation that this sandbox
+has no controlling TTY (ADR 0008, RISKS #17).
+
+Consequently, this phase does NOT claim a clean `scripts/terminal-restore-check.sh` transcript was
+captured. `tests/terminal_guard.rs` (restoration order, idempotence, restore-before-panic-message,
+and the new partial-failure-during-enter case) remains the automated, PTY-free proof for
+criterion 6. Re-running this script by hand on a real terminal (not this sandbox) is recommended
+before the next release and should replace this note with a real transcript once it succeeds.

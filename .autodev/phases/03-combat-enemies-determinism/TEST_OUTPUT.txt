@@ -1,0 +1,264 @@
+$ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --locked
+# exit code: 0   # 2026-09-14 03:54:26
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/mosslight-9dd0f4d23e86bf31)
+
+running 27 tests
+test content::error::tests::report_joins_one_line_per_error ... ok
+test content::schema::tests::every_char_maps_to_a_tile_and_back ... ok
+test content::error::tests::display_mentions_the_offending_id ... ok
+test content::schema::tests::hidden_is_neither_walkable_nor_hazardous ... ok
+test content::schema::tests::hazard_set_matches_the_table ... ok
+test content::schema::tests::illegal_char_maps_to_nothing ... ok
+test content::schema::tests::walkable_set_matches_the_table ... ok
+test content::loader::tests::a_bad_row_length_and_an_illegal_char_are_both_reported_from_one_source ... ok
+test content::validate::tests::more_than_64_smallkey_doors_is_rejected_without_panicking ... ok
+test content::validate::tests::key_reachable_only_behind_its_own_lock_is_rejected ... ok
+test game::entities::tests::a_fresh_hero_can_attack_at_tick_zero_and_is_not_invulnerable ... ok
+test game::rng::tests::below_stays_in_range ... ok
+test game::rng::tests::different_seeds_diverge ... ok
+test game::rng::tests::same_seed_yields_same_sequence ... ok
+test content::validate::tests::off_by_one_spawn_pairing_is_rejected ... ok
+test content::loader::tests::a_two_room_source_parses ... ok
+test render::scene::tests::layout_60x24_matches_spec_example ... ok
+test render::scene::tests::layout_80x24_is_centred ... ok
+test render::theme::tests::every_theme_uses_the_identical_glyph_table ... ok
+test render::tiles::tests::every_kind_has_a_glyph ... ok
+test content::validate::tests::key_reachable_before_its_lock_validates ... ok
+test content::validate::tests::reciprocal_adjacent_spawn_pairing_is_accepted ... ok
+test game::state::tests::mutating_an_enemy_field_changes_the_hash ... ok
+test game::state::tests::stepping_onto_a_door_tile_changes_room_and_lands_on_a_walkable_tile ... ok
+test render::hud::tests::hud_contains_hp_label ... ok
+test game::state::tests::two_states_built_the_same_way_hash_equal ... ok
+test game::state::tests::mutating_any_hashed_field_changes_the_hash ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running unittests src/main.rs (target/debug/deps/mosslight-a76e4220b0d5be02)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ai.rs (target/debug/deps/ai-afd7e2dd26f857f9)
+
+running 8 tests
+test path_step_is_total_for_out_of_bounds_positions ... ok
+test two_enemies_contesting_one_tile_resolve_by_vec_order ... ok
+test guardian_takes_damage_only_while_recovering ... ok
+test guardian_telegraphs_at_least_the_minimum_warning ... ok
+test slime_wander_commits_to_one_direction_for_the_whole_phase ... ok
+test each_kind_keeps_changing_state_for_1000_ticks ... ok
+test enemies_stay_inside_the_room_bounds ... ok
+test start_room_and_crossroads_have_zero_enemy_spawns ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/combat.rs (target/debug/deps/combat-21e4e9536fd6801b)
+
+running 14 tests
+test hero_can_step_into_a_dead_enemys_tile ... ok
+test door_transition_clears_a_live_swing ... ok
+test each_target_is_damaged_at_most_once_per_swing ... ok
+test contact_knockback_pushes_the_hero_away_from_the_enemy ... ok
+test contact_damage_costs_one_half_heart_and_grants_invulnerability ... ok
+test knockback_never_lands_on_a_door_tile ... ok
+test attack_inside_cooldown_is_ignored_and_the_next_one_lands ... ok
+test an_enemy_at_zero_hp_emits_enemy_killed_and_stops_acting ... ok
+test hero_cannot_step_onto_a_live_enemys_tile ... ok
+test hero_died_fires_only_on_the_tick_health_reaches_zero ... ok
+test knockback_stops_adjacent_to_an_obstacle ... ok
+test swing_expiry_emits_an_event_so_the_sword_glyph_gets_cleared ... ok
+test sword_misses_side_and_rear_tiles ... ok
+test sword_hits_only_the_faced_tile ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/config.rs (target/debug/deps/config-5d32a518e767ca89)
+
+running 20 tests
+test color_precedence_auto_healthy_term_is_always ... ok
+test color_precedence_explicit_flag_wins_over_no_color ... ok
+test color_precedence_term_dumb_forces_never ... ok
+test color_precedence_no_color_wins_over_auto ... ok
+test color_precedence_non_tty_forces_never ... ok
+test fps_45_is_rejected ... ok
+test explicit_save_dir_overrides_default ... ok
+test defaults_are_ascii_gameboy_20fps ... ok
+test debug_panic_flag_parses_hidden ... ok
+test every_flag_parses ... ok
+test ascii_and_unicode_together_is_rejected ... ok
+test save_dir_linux_fallback_default ... ok
+test save_dir_linux_xdg_default ... ok
+test save_dir_macos_default ... ok
+test version_flag_exits_0_on_stdout ... ok
+test help_flag_exits_0_on_stdout ... ok
+test version_flag_prints_to_stdout_and_exits_0 ... ok
+test help_flag_prints_to_stdout_and_exits_0 ... ok
+test term_dumb_exits_2_with_one_stderr_line_and_no_stdout ... ok
+test non_tty_stdin_exits_2_with_one_stderr_line ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+     Running tests/content.rs (target/debug/deps/content-7cd1729ecc0d91ae)
+
+running 15 tests
+test illegal_tile_is_rejected ... ok
+test base_fixture_validates ... ok
+test three_defects_are_all_reported ... ok
+test duplicate_id_is_rejected ... ok
+test key_behind_its_own_lock_is_rejected ... ok
+test missing_door_target_is_rejected ... ok
+test non_reciprocal_door_is_rejected ... ok
+test ember_unreachable_is_rejected ... ok
+test enemy_spawn_in_wall_is_rejected ... ok
+test unknown_field_is_rejected ... ok
+test wrong_dimensions_is_rejected ... ok
+test spawn_in_wall_is_rejected ... ok
+test walled_in_spawn_is_rejected ... ok
+test real_world_has_nine_rooms_in_a_3x3_grid ... ok
+test real_world_validates ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/content_startup.rs (target/debug/deps/content_startup-5f000160dcce5165)
+
+running 2 tests
+test broken_world_exits_two_with_a_readable_list ... ok
+test a_valid_debug_content_file_passes_the_content_preflight ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/deps.rs (target/debug/deps/deps-220de9094e547b3e)
+
+running 2 tests
+test cargo_toml_never_declares_crossterm ... ok
+test single_crossterm_in_lockfile ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/determinism.rs (target/debug/deps/determinism-5a4b83ebc8a80e31)
+
+running 3 tests
+test same_seed_same_actions_hash_identically_every_tick ... ok
+test different_seeds_diverge ... ok
+test hash_sequence_is_unaffected_by_fps_batching ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/input_policy.rs (target/debug/deps/input_policy-7f13a1b48d9d2bc9)
+
+running 11 tests
+test arrows_and_wasd_map_to_moves ... ok
+test burst_ending_in_a_direction_change_yields_the_newest_movement ... ok
+test burst_of_200_moves_yields_one_action ... ok
+test coalesce_keeps_last_movement_and_other_actions ... ok
+test combat_and_menu_keys_map_per_spec ... ok
+test ctrl_c_maps_to_quit ... ok
+test drain_ready_still_empties_the_source_past_the_hard_cap ... ok
+test drop_pending_clears_buffered_actions ... ok
+test enter_and_e_differ_by_mode ... ok
+test drain_ready_empties_a_500_event_burst_in_one_call_and_yields_one_step ... ok
+test overflow_retains_up_to_eight_control_actions_queued_ahead_of_a_movement_burst ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/loop_timing.rs (target/debug/deps/loop_timing-fbd2a2200389abdf)
+
+running 8 tests
+test a_long_stall_yields_at_most_five_steps_and_discards_the_surplus ... ok
+test draw_cadence_scales_with_fps_while_simulation_tick_count_does_not ... ok
+test draws_per_second_never_exceed_configured_fps ... ok
+test no_draw_is_due_while_idle_with_nothing_dirty ... ok
+test a_keypress_delivered_when_no_sim_step_is_due_is_not_lost ... ok
+test no_draw_is_due_while_playing_idle_with_no_actions ... ok
+test a_held_movement_key_advances_the_hero_at_the_step_cooldown_rate_across_iterations ... ok
+test state_is_identical_at_every_fps ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/mode_machine.rs (target/debug/deps/mode_machine-d0a2c2865de36777)
+
+running 10 tests
+test new_game_enters_playing_at_spawn ... ok
+test game_over_cancel_returns_to_the_main_menu ... ok
+test help_returns_to_previous_mode ... ok
+test death_opens_game_over_and_retry_restores_the_checkpoint ... ok
+test quit_in_too_small_mode_quits_immediately_with_no_confirmation ... ok
+test retry_restores_the_room_entry_checkpoint_not_a_fresh_hero ... ok
+test esc_pauses_and_stops_simulation ... ok
+test quit_requires_confirmation ... ok
+test resize_too_small_stops_ticks_then_recovery_enters_paused ... ok
+test esc_resumes_and_drops_a_trailing_move_from_the_same_batch ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/movement.rs (target/debug/deps/movement-a486ef2efb2cb51d)
+
+running 8 tests
+test blocked_by_bush ... ok
+test blocked_by_wall_keeps_position_sets_facing ... ok
+test blocked_out_of_bounds ... ok
+test one_step_per_cooldown ... ok
+test no_actions_is_a_noop_except_tick ... ok
+test blocked_by_water ... ok
+test determinism_same_seed_same_actions ... ok
+test steps_in_each_direction ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/no_key_release.rs (target/debug/deps/no_key_release-244b8cef84305c92)
+
+running 1 test
+test no_key_release_or_extended_protocol_tokens_in_src ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/render.rs (target/debug/deps/render-3ef840a5fdb013dc)
+
+running 7 tests
+test too_small_notice_shows_required_and_current_size ... ok
+test enemy_sword_and_telegraph_glyphs_land_on_expected_cells_60x24 ... ok
+test scene_centred_80x24 ... ok
+test scene_placement_60x24 ... ok
+test main_menu_overlay_lists_all_items ... ok
+test scene_renders_identical_characters_under_every_theme ... ok
+test draw_never_panics_on_a_too_small_frame_even_without_a_prior_resize ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/terminal_guard.rs (target/debug/deps/terminal_guard-63b80c31f54d9de5)
+
+running 8 tests
+test diagnostics_buffer_until_flushed ... ok
+test a_failure_partway_through_enter_still_disables_raw_mode ... ok
+test drop_restores_in_reverse_order ... ok
+test explicit_restore_then_drop_runs_restore_sequence_once ... ok
+test enter_records_enable_raw_then_alt_then_hide_cursor ... ok
+test panic_hook_restores_before_the_default_hook_runs ... ok
+test preflight_table ... ok
+test panic_hook_sharing_a_guards_flag_stops_the_guard_from_restoring_again ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/transitions.rs (target/debug/deps/transitions-aa749eba114bd8cc)
+
+running 7 tests
+test a_blocked_move_into_a_wall_next_to_a_door_emits_no_room_entered ... ok
+test visited_set_grows_once_per_new_room ... ok
+test re_entering_a_visited_room_does_not_grow_the_set ... ok
+test room_entered_is_emitted_once_per_transition_and_not_for_the_start_room ... ok
+test arrival_tile_is_walkable_and_not_a_door ... ok
+test every_door_leads_to_its_target_room ... ok
+test reciprocal_door_returns_to_the_origin_door ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests mosslight
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
