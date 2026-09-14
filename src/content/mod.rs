@@ -11,8 +11,8 @@ pub mod validate;
 pub use error::{report, ContentError, IdKind};
 pub use loader::{load, parse, EMBEDDED};
 pub use schema::{
-    Chest, DialogueNode, Door, EnemyKind, EnemySpawn, LockKind, Npc, ObjectKind, Plate, Puzzle,
-    PuzzleKind, Reward, Room, RoomIdx, RoomKind, Route, Spawn, StartPoint, Tile, TileGrid, Torch,
-    World,
+    Beacon, Block, Chest, DialogueNode, Door, EnemyKind, EnemySpawn, LockKind, Npc, ObjectKind,
+    Plate, Puzzle, PuzzleKind, Reward, Room, RoomIdx, RoomKind, Route, Spawn, StartPoint, Tile,
+    TileGrid, Torch, World,
 };
 pub use validate::{main_route_rooms, validate};

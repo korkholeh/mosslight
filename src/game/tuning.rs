@@ -92,3 +92,26 @@ pub const GUARDIAN_RECOVER_TICKS: u64 = 30;
 /// constants above (guardian's worst case: patrol timeout + telegraph + dash + recover). Used by
 /// `tests/ai.rs` to assert liveness.
 pub const MAX_STALL_TICKS: u64 = 300;
+
+/// Boss hit points: eight sword hits total across both phases.
+pub const BOSS_HP: u8 = 8;
+/// HP at or below which the boss enters phase two.
+pub const BOSS_PHASE_TWO_HP: u8 = 4;
+/// Phase-one stalk length before committing to an attack: 60 ticks = 2000 ms.
+pub const BOSS_P1_STALK_TICKS: u64 = 60;
+/// Phase-two stalk length: 45 ticks = 1500 ms, faster-paced than phase one.
+pub const BOSS_P2_STALK_TICKS: u64 = 45;
+/// Phase-one stalk movement interval: 12 ticks = 400 ms.
+pub const BOSS_P1_STEP_TICKS: u64 = 12;
+/// Phase-two stalk movement interval: 8 ticks = 267 ms.
+pub const BOSS_P2_STEP_TICKS: u64 = 8;
+/// Phase-one telegraph hold: 24 ticks = 800 ms, above the §6 600 ms floor.
+pub const BOSS_P1_WINDUP_TICKS: u64 = 24;
+/// Phase-two telegraph hold: 18 ticks = 600 ms, exactly the §6 floor.
+pub const BOSS_P2_WINDUP_TICKS: u64 = TELEGRAPH_MIN_TICKS;
+/// Phase-one vulnerability window (the only ticks the boss takes damage): 45 ticks = 1500 ms.
+pub const BOSS_P1_VULNERABLE_TICKS: u64 = 45;
+/// Phase-two vulnerability window: 30 ticks = 1000 ms, shorter and higher-pressure.
+pub const BOSS_P2_VULNERABLE_TICKS: u64 = 30;
+/// Boss strike damage, in half-hearts (§6's "typical damage: half a heart").
+pub const BOSS_STRIKE_DAMAGE_HALVES: u8 = 1;

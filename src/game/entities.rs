@@ -103,6 +103,14 @@ pub struct DialogueState {
     pub node: u16,
 }
 
+/// The boss's per-phase telegraphed attack shape (spec §6: a distinct pattern per phase). Phase 1
+/// always slams, phase 2 always sweeps — see `combat::apply_boss_strike`'s `strike_tiles`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BossPattern {
+    Slam,
+    Sweep,
+}
+
 /// One explicit state machine per kind (ADR 0004): flat variants rather than four nested enums,
 /// so a `match` over the whole machine fits on one screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +149,26 @@ pub enum AiState {
         facing: Facing,
     },
     GuardianRecover {
+        until: Tick,
+    },
+    BossStalk {
+        phase: u8,
+        until: Tick,
+    },
+    BossWindup {
+        phase: u8,
+        until: Tick,
+        pattern: BossPattern,
+    },
+    /// Exactly one tick long: `ai::step_boss` always advances it to `BossVulnerable` the same
+    /// tick, so `combat::apply_boss_strike` (which runs between `ai::step` and
+    /// `apply_contact_damage` in the pipeline) sees it exactly once per strike.
+    BossStrike {
+        phase: u8,
+        pattern: BossPattern,
+    },
+    BossVulnerable {
+        phase: u8,
         until: Tick,
     },
 }

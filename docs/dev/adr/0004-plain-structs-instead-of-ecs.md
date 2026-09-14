@@ -56,6 +56,21 @@ nesting would add an indirection at every match site for no benefit at this scal
 of anything — it is out of scope until phase 5, and adding it is expected to follow the same flat
 naming convention (`BossPhaseOne`, `BossStunned`, ...).
 
+## Amendment (phase 5, 2026-09-14)
+
+The boss's four `AiState` variants landed as `BossStalk { phase, until }`, `BossWindup { phase,
+until, pattern }`, `BossStrike { phase, pattern }`, `BossVulnerable { phase, until }` — a
+`phase: 1 | 2` field on each variant plus `BossPattern::{Slam, Sweep}` on the two that need it,
+rather than the `BossPhaseOne{..} | BossPhaseTwo{..} | BossStunned{..} | Dead` sketch in the
+previous amendment. Naming the states after what the boss is *doing*
+(stalk/telegraph/strike/vulnerable) instead of *which phase* keeps the one cycle that both phases
+share — `ai::step_boss` — a single `match` with a `phase` field threaded through, instead of
+duplicating the cycle into a phase-1 and a phase-2 branch of the enum itself; `Dead` was never
+needed because `enter_room` simply does not spawn a boss whose `defeat_flag` is already set into
+`GameState`'s live `Vec<Enemy>`, rather than spawning it in a fourth idle `AiState` (see ADR 0009).
+The core decision — a flat enum, no ECS — is unchanged; only this naming detail differs from the
+earlier prediction.
+
 ## Consequences
 
 - Any simulation test is "build a `GameState`, call `update` with actions, assert fields" — no world

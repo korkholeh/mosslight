@@ -6,14 +6,21 @@ use std::rc::Rc;
 use super::ai;
 use super::combat;
 use super::entities::{AiState, DialogueState, Enemy, EnemyId, Facing, Hero, ObjectRef, Pos};
-use super::puzzles::{self, PlateState};
+use super::puzzles::{self, PuzzleState};
 use super::rng::Rng;
 use super::tuning::{
-    BAT_HP, BAT_REST_TICKS, GUARDIAN_HP, GUARDIAN_PATROL_TICKS, SLIME_HP, SLIME_IDLE_TICKS,
+    BAT_HP, BAT_REST_TICKS, BOSS_HP, GUARDIAN_HP, GUARDIAN_PATROL_TICKS, SLIME_HP, SLIME_IDLE_TICKS,
 };
-use super::world::{EnemyKind, LockKind, ObjectKind, Reward, Room, RoomIdx, Tile, World};
+use super::world::{
+    Door, EnemyKind, LockKind, ObjectKind, PuzzleKind, Reward, Room, RoomIdx, Tile, World,
+};
 
 pub type Tick = u64;
+
+/// The story flag set when the beacon is relit (spec §2's ending). Not authored content — the
+/// beacon is the one interactive object whose flag is a fixed simulation constant rather than a
+/// per-content id, since there is exactly one beacon and one ending.
+const LIGHTHOUSE_RELIT_FLAG: &str = "flag.lighthouse_relit";
 
 /// What of the world the hero has done so far. `visited` is the only field phase 3 had; this
 /// phase adds `opened_chests`, `lit_torches`, `solved_puzzles`, `flags`. `BTreeSet` keeps
@@ -30,6 +37,9 @@ pub struct Progress {
     pub opened_chests: BTreeSet<ObjectRef>,
     pub lit_torches: BTreeSet<ObjectRef>,
     pub solved_puzzles: BTreeSet<ObjectRef>,
+    /// `SmallKey`-locked doors already unlocked — permanent, so a second pass through the same
+    /// door (from either side; see `resolve_door`'s reciprocal insertion) costs nothing.
+    pub unlocked_doors: BTreeSet<ObjectRef>,
     /// Story flags, by authored id — the save vocabulary, few and short.
     pub flags: BTreeSet<String>,
 }
@@ -47,9 +57,10 @@ pub struct GameState {
     /// `Some` while a dialogue window is open; suspends the whole per-tick pipeline (see
     /// `update`).
     pub dialogue: Option<DialogueState>,
-    /// Which of the current room's plates are currently pressed. Room-local and transient: reset
-    /// on every room entry, so an unsolved puzzle resets on re-entry (spec §6).
-    pub plates: PlateState,
+    /// Transient state of the current room's puzzles (pressed plates, live block positions, the
+    /// torch sequence lit so far). Reset on every room entry (`enter_room`), so an unsolved puzzle
+    /// resets on re-entry (spec §6).
+    pub puzzle: PuzzleState,
 }
 
 impl GameState {
@@ -78,9 +89,9 @@ impl GameState {
                 ..Progress::default()
             },
             dialogue: None,
-            plates: PlateState::default(),
+            puzzle: PuzzleState::default(),
         };
-        state.spawn_enemies();
+        state.enter_room();
         state
     }
 
@@ -89,17 +100,28 @@ impl GameState {
     }
 
     /// Rebuilds `enemies` from the current room's authored spawns, in authored order, so
-    /// `EnemyId(i)` is always `enemies[i]`. Called on construction and on every room transition —
-    /// enemies are room-local and respawn on re-entry (spec §10: transient combat state is
-    /// deliberately discarded).
-    pub fn spawn_enemies(&mut self) {
-        self.plates = PlateState::default();
+    /// `EnemyId(i)` is always `enemies[i]`, and reseeds `puzzle` from the room's authored content.
+    /// Called on construction and on every room transition — enemies and puzzle state are
+    /// room-local and reset on re-entry (spec §6/§10: transient state is deliberately discarded).
+    /// A boss spawn whose `defeat_flag` is already set is skipped, so a defeated boss does not
+    /// respawn while ordinary enemies still do (spec §10).
+    pub fn enter_room(&mut self) {
         let tick = self.tick;
-        let enemies: Vec<Enemy> = self
-            .room()
+        let world = Rc::clone(&self.world);
+        let room = world.room(self.room);
+        self.puzzle = PuzzleState::for_room(room);
+        let flags = &self.progress.flags;
+        let enemies: Vec<Enemy> = room
             .enemies
             .iter()
             .enumerate()
+            .filter(|(_, spawn)| {
+                spawn.kind != EnemyKind::Boss
+                    || !spawn
+                        .defeat_flag
+                        .as_ref()
+                        .is_some_and(|flag| flags.contains(flag))
+            })
             .map(|(i, spawn)| Enemy {
                 id: EnemyId(i as u16),
                 kind: spawn.kind,
@@ -151,7 +173,8 @@ impl GameState {
             return false;
         };
         let tile_ok = tile.is_walkable() || (tile == Tile::Hidden && self.is_revealed(room, at));
-        tile_ok && self.object_at(room, at).is_none()
+        let block_free = room != self.room || !self.puzzle.blocks.contains(&at);
+        tile_ok && self.object_at(room, at).is_none() && block_free
     }
 
     /// Every `Hidden` position in `room` revealed by a lit torch or a solved puzzle, as a set.
@@ -186,6 +209,7 @@ fn initial_hp(kind: EnemyKind) -> u8 {
         EnemyKind::Slime => SLIME_HP,
         EnemyKind::Bat => BAT_HP,
         EnemyKind::Guardian => GUARDIAN_HP,
+        EnemyKind::Boss => BOSS_HP,
     }
 }
 
@@ -201,6 +225,10 @@ fn initial_ai_state(kind: EnemyKind, tick: Tick) -> AiState {
             waypoint: 0,
             until: tick + GUARDIAN_PATROL_TICKS,
         },
+        EnemyKind::Boss => AiState::BossStalk {
+            phase: 1,
+            until: tick + super::tuning::BOSS_P1_STALK_TICKS,
+        },
     }
 }
 
@@ -213,7 +241,7 @@ impl PartialEq for GameState {
             && self.room == other.room
             && self.progress == other.progress
             && self.dialogue == other.dialogue
-            && self.plates == other.plates
+            && self.puzzle == other.puzzle
     }
 }
 
@@ -312,6 +340,32 @@ pub enum GameEvent {
     PuzzleSolved {
         puzzle: ObjectRef,
     },
+    BlockPushed {
+        index: u16,
+        from: Pos,
+        to: Pos,
+    },
+    PuzzleReset {
+        puzzle: ObjectRef,
+    },
+    DoorUnlocked {
+        door: ObjectRef,
+    },
+    BossPhaseChanged {
+        id: EnemyId,
+        phase: u8,
+    },
+    BossTelegraph {
+        id: EnemyId,
+        tiles: Vec<Pos>,
+    },
+    BossStruck {
+        tiles: Vec<Pos>,
+    },
+    BossDefeated {
+        id: EnemyId,
+    },
+    GameWon,
 }
 
 fn facing_for(action: Action) -> Option<Facing> {
@@ -338,13 +392,14 @@ pub(super) fn step_target(pos: Pos, facing: Facing) -> Option<Pos> {
 
 /// The only simulation entry point. Total: never panics, never touches a clock, returns events.
 ///
-/// While `state.dialogue` is `Some`, only `Confirm`/`Cancel` are processed and the six-step
-/// per-tick pipeline below does not run at all: nothing moves, no timer fires, no damage lands
-/// while a dialogue is open (see `advance_dialogue`).
+/// While `state.dialogue` is `Some`, only `Confirm`/`Cancel` are processed and the per-tick
+/// pipeline below does not run at all: nothing moves, no timer fires, no damage lands while a
+/// dialogue is open (see `advance_dialogue`).
 ///
-/// Otherwise runs a fixed six-step pipeline per tick (Design, `state.rs`): hero actions, sword
-/// resolution, enemy AI, contact damage, death, swing expiry. The order is part of the contract —
-/// it is what makes a contested tile deterministic.
+/// Otherwise runs a fixed pipeline per tick (Design, `state.rs`): hero actions, sword resolution,
+/// enemy AI, boss strike resolution, contact damage, death, swing expiry. The order is part of the
+/// contract — it is what makes a contested tile deterministic, and what lets `apply_boss_strike`
+/// always see the tick `ai::step` sets `BossStrike` on.
 ///
 /// An attempted move always sets facing; a step applies only once the cooldown has elapsed; it is
 /// refused off-grid, onto a non-walkable tile (an authored solid object counts as non-walkable,
@@ -393,6 +448,14 @@ pub fn update(state: &mut GameState, actions: &[Action], tick: Tick) -> Vec<Game
             }
             let from = state.hero.pos;
             let target = step_target(from, facing);
+
+            if let Some(to) = target {
+                if let Some(block_index) = state.puzzle.blocks.iter().position(|&p| p == to) {
+                    events.extend(try_push_block(state, block_index, from, to, facing, tick));
+                    continue;
+                }
+            }
+
             let walkable = target.is_some_and(|p| state.walkable(state.room, p))
                 && target.is_some_and(|p| !state.enemies.iter().any(|e| e.alive && e.pos == p));
             if walkable {
@@ -403,24 +466,24 @@ pub fn update(state: &mut GameState, actions: &[Action], tick: Tick) -> Vec<Game
                         events.push(GameEvent::Message(door_blocked_message(&lock)));
                         events.push(GameEvent::DoorBlocked { lock });
                     }
+                    DoorCheck::NeedsKey(door_ref, transition) => {
+                        state.hero.keys -= 1;
+                        state.progress.unlocked_doors.insert(door_ref);
+                        if let Some(reciprocal) = reciprocal_door_ref(
+                            state,
+                            state.room,
+                            door_ref,
+                            transition.room,
+                            transition.spawn,
+                        ) {
+                            state.progress.unlocked_doors.insert(reciprocal);
+                        }
+                        events.push(GameEvent::DoorUnlocked { door: door_ref });
+                        apply_transition(state, from, to, transition, tick, &mut events);
+                        return events;
+                    }
                     DoorCheck::Open(transition) => {
-                        state.hero.pos = to;
-                        state.hero.mark_stepped(tick);
-                        events.push(GameEvent::HeroMoved { from, to });
-                        state.room = transition.room;
-                        state.hero.pos = transition.spawn;
-                        let first_visit = state.progress.visited.insert(transition.room);
-                        events.push(GameEvent::RoomEntered {
-                            room: transition.room,
-                            first_visit,
-                        });
-                        // A live swing carries the pre-transition tile and enemy ids; both are
-                        // meaningless (and dangerous) against the new room's rebuilt enemy vector,
-                        // so it must not survive the door (round-1 review, major).
-                        // `attack_ready_at` is left untouched: the cooldown was already paid and
-                        // still applies.
-                        state.hero.attack = None;
-                        state.spawn_enemies();
+                        apply_transition(state, from, to, transition, tick, &mut events);
                         return events;
                     }
                     DoorCheck::None => {
@@ -449,6 +512,7 @@ pub fn update(state: &mut GameState, actions: &[Action], tick: Tick) -> Vec<Game
 
     events.extend(combat::resolve_swing(state, tick));
     events.extend(ai::step(state, tick));
+    events.extend(combat::apply_boss_strike(state, tick));
     events.extend(combat::apply_contact_damage(state, tick));
     if combat::expire_swing(&mut state.hero, tick) {
         events.push(GameEvent::AttackEnded);
@@ -515,6 +579,24 @@ fn handle_interact(state: &mut GameState) -> Vec<GameEvent> {
                 events.extend(apply_reward(&mut state.hero, &reward));
             }
         }
+        Some(ObjectKind::Beacon(_)) => {
+            if state.hero.has_ember {
+                if state
+                    .progress
+                    .flags
+                    .insert(LIGHTHOUSE_RELIT_FLAG.to_string())
+                {
+                    events.push(GameEvent::FlagSet {
+                        flag: LIGHTHOUSE_RELIT_FLAG.to_string(),
+                    });
+                }
+                events.push(GameEvent::GameWon);
+            } else {
+                events.push(GameEvent::Message(
+                    "The brazier is cold; the ember is not yours yet.".to_string(),
+                ));
+            }
+        }
         Some(ObjectKind::Npc(index)) => {
             let npc = &state.world.room(room_idx).npcs[index as usize];
             let satisfied = match &npc.condition {
@@ -545,7 +627,10 @@ fn handle_interact(state: &mut GameState) -> Vec<GameEvent> {
 }
 
 /// `UseLantern` on the tile the hero faces: lights an unlit torch, or reports why nothing
-/// happened.
+/// happened. A torch named by an unsolved `TorchSequence` puzzle is a *sequence* torch: lighting
+/// it is transient (`state.puzzle.sequence`), not a permanent `progress.lit_torches` entry. In the
+/// hinted order it advances the sequence (solving the puzzle once complete); out of order it
+/// resets the sequence for a costless retry. Every other torch keeps the permanent behaviour.
 fn handle_use_lantern(state: &mut GameState) -> Vec<GameEvent> {
     let mut events = Vec::new();
     let room_idx = state.room;
@@ -558,15 +643,61 @@ fn handle_use_lantern(state: &mut GameState) -> Vec<GameEvent> {
                 events.push(GameEvent::Message("You have no lantern.".to_string()));
                 return events;
             }
+            let world = Rc::clone(&state.world);
+            let room = world.room(room_idx);
+            let torch_id = room.torches[index as usize].id.clone();
+            let sequence_puzzle = room.puzzles.iter().enumerate().find(|(_, p)| {
+                p.kind == PuzzleKind::TorchSequence && p.torches.contains(&torch_id)
+            });
+
+            if let Some((puzzle_index, puzzle)) = sequence_puzzle {
+                let obj = ObjectRef {
+                    room: room_idx,
+                    index: puzzle_index as u16,
+                };
+                if state.progress.solved_puzzles.contains(&obj) {
+                    events.push(GameEvent::Message(
+                        "The flames are already steady.".to_string(),
+                    ));
+                    return events;
+                }
+                let is_next = puzzle
+                    .torches
+                    .get(state.puzzle.sequence.len())
+                    .is_some_and(|id| *id == torch_id);
+                if is_next {
+                    state.puzzle.sequence.push(index);
+                    events.push(GameEvent::TorchLit {
+                        torch: ObjectRef {
+                            room: room_idx,
+                            index,
+                        },
+                    });
+                    if state.puzzle.sequence.len() == puzzle.torches.len() {
+                        let puzzle = puzzle.clone();
+                        puzzles::solve_puzzle(
+                            state,
+                            &mut events,
+                            room_idx,
+                            puzzle_index as u16,
+                            &puzzle,
+                        );
+                    }
+                } else {
+                    state.puzzle.sequence.clear();
+                    events.push(GameEvent::PuzzleReset { puzzle: obj });
+                    events.push(GameEvent::Message("The flames gutter out.".to_string()));
+                }
+                return events;
+            }
+
             let obj = ObjectRef {
                 room: room_idx,
                 index,
             };
             if state.progress.lit_torches.insert(obj) {
                 events.push(GameEvent::TorchLit { torch: obj });
-                let reveals = state.world.room(room_idx).torches[index as usize]
-                    .reveals
-                    .clone();
+                let reveals = room.torches[index as usize].reveals.clone();
                 for at in reveals {
                     events.push(GameEvent::PassageRevealed { room: room_idx, at });
                     events.push(GameEvent::Message("A passage opens.".to_string()));
@@ -647,6 +778,9 @@ struct Transition {
 enum DoorCheck {
     None,
     Blocked(LockKind),
+    /// A `SmallKey` door the hero can afford: `update()` decrements `hero.keys`, records the
+    /// unlock (and its reciprocal), then performs the same transition as `Open`.
+    NeedsKey(ObjectRef, Transition),
     Open(Transition),
 }
 
@@ -658,18 +792,28 @@ fn door_blocked_message(lock: &LockKind) -> String {
     }
 }
 
+/// Read-only: observes `state` but never mutates it. `at` must be a door tile in `room` or this
+/// returns `DoorCheck::None`.
 fn resolve_door(state: &GameState, room: RoomIdx, at: Pos) -> DoorCheck {
-    let Some(door) = state.world.door_at(room, at) else {
+    let Some(door_index) = state.world.room(room).doors.iter().position(|d| d.at == at) else {
         return DoorCheck::None;
     };
+    let door = &state.world.room(room).doors[door_index];
+    let door_ref = ObjectRef {
+        room,
+        index: door_index as u16,
+    };
+
     let passable = match &door.lock {
         None => true,
         Some(LockKind::Lantern) => state.hero.has_lantern,
         Some(LockKind::Flag(flag)) => state.progress.flags.contains(flag),
-        // Key consumption is phase 5; no SmallKey door is authored before then.
-        Some(LockKind::SmallKey) => false,
+        Some(LockKind::SmallKey) => state.progress.unlocked_doors.contains(&door_ref),
     };
-    if !passable {
+    let affordable_key =
+        !passable && matches!(door.lock, Some(LockKind::SmallKey)) && state.hero.keys > 0;
+
+    if !passable && !affordable_key {
         return DoorCheck::Blocked(door.lock.clone().expect("passable=false implies a lock"));
     }
     let Some(target_room) = state.world.room_idx(&door.to_room) else {
@@ -678,10 +822,131 @@ fn resolve_door(state: &GameState, room: RoomIdx, at: Pos) -> DoorCheck {
     let Some(spawn) = state.world.spawn_pos(target_room, &door.to_spawn) else {
         return DoorCheck::None;
     };
-    DoorCheck::Open(Transition {
+    let transition = Transition {
         room: target_room,
         spawn,
-    })
+    };
+    if affordable_key {
+        DoorCheck::NeedsKey(door_ref, transition)
+    } else {
+        DoorCheck::Open(transition)
+    }
+}
+
+fn orthogonally_adjacent(a: Pos, b: Pos) -> bool {
+    let dx = (a.x as i32 - b.x as i32).abs();
+    let dy = (a.y as i32 - b.y as i32).abs();
+    (dx == 1 && dy == 0) || (dx == 0 && dy == 1)
+}
+
+/// The door in `landing_room` whose `to_room` is `source_room` and whose spawn pairing with
+/// `door_ref`'s door is the reciprocal `check_reciprocity` already validates at content-load time
+/// — same adjacency test, run again here since the simulation only has the two `ObjectRef`s to
+/// work with, not the validator's precomputed pairing.
+fn reciprocal_door_ref(
+    state: &GameState,
+    source_room: RoomIdx,
+    door_ref: ObjectRef,
+    landing_room: RoomIdx,
+    landing_pos: Pos,
+) -> Option<ObjectRef> {
+    let door: &Door = &state.world.room(source_room).doors[door_ref.index as usize];
+    let source = state.world.room(source_room);
+    let target = state.world.room(landing_room);
+    target
+        .doors
+        .iter()
+        .position(|b| {
+            b.to_room == source.id
+                && orthogonally_adjacent(landing_pos, b.at)
+                && source
+                    .spawn_at(&b.to_spawn)
+                    .is_some_and(|bs| orthogonally_adjacent(bs, door.at))
+        })
+        .map(|index| ObjectRef {
+            room: landing_room,
+            index: index as u16,
+        })
+}
+
+/// Shared by `DoorCheck::Open` and `DoorCheck::NeedsKey`: moves the hero through the door, grows
+/// `visited`, emits `RoomEntered` after `HeroMoved`, drops any live swing (its target tile and
+/// enemy ids refer to the room just left) and rebuilds the new room's enemies/puzzle state.
+fn apply_transition(
+    state: &mut GameState,
+    from: Pos,
+    to: Pos,
+    transition: Transition,
+    tick: Tick,
+    events: &mut Vec<GameEvent>,
+) {
+    state.hero.pos = to;
+    state.hero.mark_stepped(tick);
+    events.push(GameEvent::HeroMoved { from, to });
+    state.room = transition.room;
+    state.hero.pos = transition.spawn;
+    let first_visit = state.progress.visited.insert(transition.room);
+    events.push(GameEvent::RoomEntered {
+        room: transition.room,
+        first_visit,
+    });
+    // `attack_ready_at` is left untouched: the cooldown was already paid and still applies.
+    state.hero.attack = None;
+    state.enter_room();
+}
+
+/// Attempts to push the block at `state.puzzle.blocks[block_index]` (== `block_pos`) one tile in
+/// `facing`. On success the block moves, the hero steps into the vacated tile (paying the normal
+/// step cooldown) and the room's puzzles are re-evaluated exactly as an ordinary step would be; on
+/// an illegal push nothing moves and it is reported exactly like any other blocked step. Also
+/// refused if a live enemy already occupies `block_pos` itself (round-1 review, major): that tile
+/// is where the hero would step, and `block_push_target` only vets the push *target*, not the tile
+/// vacated by the push — normally unreachable now that enemies treat a block as solid (see
+/// `ai::occupied_positions`), but kept as a second, independent guard against the hero and an
+/// enemy ever sharing a tile.
+fn try_push_block(
+    state: &mut GameState,
+    block_index: usize,
+    from: Pos,
+    block_pos: Pos,
+    facing: Facing,
+    tick: Tick,
+) -> Vec<GameEvent> {
+    let mut events = Vec::new();
+    let world = Rc::clone(&state.world);
+    let room = world.room(state.room);
+    let occupied: HashSet<Pos> = state
+        .enemies
+        .iter()
+        .filter(|e| e.alive)
+        .map(|e| e.pos)
+        .collect();
+    let push_target = if occupied.contains(&block_pos) {
+        None
+    } else {
+        puzzles::block_push_target(room, &state.puzzle.blocks, &occupied, block_pos, facing)
+    };
+    match push_target {
+        Some(to) => {
+            state.puzzle.blocks[block_index] = to;
+            state.hero.pos = block_pos;
+            state.hero.mark_stepped(tick);
+            events.push(GameEvent::BlockPushed {
+                index: block_index as u16,
+                from: block_pos,
+                to,
+            });
+            events.push(GameEvent::HeroMoved {
+                from,
+                to: block_pos,
+            });
+            events.extend(puzzles::on_hero_moved(state, tick));
+        }
+        None => {
+            events.push(GameEvent::MoveBlocked { at: from, facing });
+        }
+    }
+    events
 }
 
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
@@ -780,6 +1045,31 @@ impl StateHasher {
                 self.write_u64(until);
                 self.write_facing(facing);
             }
+            AiState::BossStalk { phase, until } => {
+                self.write_u8(9);
+                self.write_u8(phase);
+                self.write_u64(until);
+            }
+            AiState::BossWindup {
+                phase,
+                until,
+                pattern,
+            } => {
+                self.write_u8(10);
+                self.write_u8(phase);
+                self.write_u64(until);
+                self.write_u8(boss_pattern_code(pattern));
+            }
+            AiState::BossStrike { phase, pattern } => {
+                self.write_u8(11);
+                self.write_u8(phase);
+                self.write_u8(boss_pattern_code(pattern));
+            }
+            AiState::BossVulnerable { phase, until } => {
+                self.write_u8(12);
+                self.write_u8(phase);
+                self.write_u64(until);
+            }
         }
     }
 
@@ -802,6 +1092,14 @@ fn enemy_kind_code(kind: EnemyKind) -> u8 {
         EnemyKind::Slime => 0,
         EnemyKind::Bat => 1,
         EnemyKind::Guardian => 2,
+        EnemyKind::Boss => 3,
+    }
+}
+
+fn boss_pattern_code(pattern: super::entities::BossPattern) -> u8 {
+    match pattern {
+        super::entities::BossPattern::Slam => 0,
+        super::entities::BossPattern::Sweep => 1,
     }
 }
 
@@ -883,6 +1181,11 @@ pub fn state_hash(state: &GameState) -> u64 {
         h.write_object_ref(*obj);
     }
 
+    h.write_u32(state.progress.unlocked_doors.len() as u32);
+    for obj in &state.progress.unlocked_doors {
+        h.write_object_ref(*obj);
+    }
+
     h.write_u32(state.progress.flags.len() as u32);
     for flag in &state.progress.flags {
         h.write_u32(flag.len() as u32);
@@ -898,8 +1201,18 @@ pub fn state_hash(state: &GameState) -> u64 {
         }
     }
 
-    h.write_u32(state.plates.pressed.len() as u32);
-    for &index in &state.plates.pressed {
+    h.write_u32(state.puzzle.pressed.len() as u32);
+    for &index in &state.puzzle.pressed {
+        h.write_u16(index);
+    }
+
+    h.write_u32(state.puzzle.blocks.len() as u32);
+    for &pos in &state.puzzle.blocks {
+        h.write_pos(pos);
+    }
+
+    h.write_u32(state.puzzle.sequence.len() as u32);
+    for &index in &state.puzzle.sequence {
         h.write_u16(index);
     }
 
@@ -1087,9 +1400,30 @@ mod tests {
                 }),
             ),
             (
-                "plates.pressed",
+                "puzzle.pressed",
                 Box::new(|s: &mut GameState| {
-                    s.plates.pressed.insert(0);
+                    s.puzzle.pressed.insert(0);
+                }),
+            ),
+            (
+                "puzzle.blocks",
+                Box::new(|s: &mut GameState| {
+                    s.puzzle.blocks.push(Pos { x: 9, y: 9 });
+                }),
+            ),
+            (
+                "puzzle.sequence",
+                Box::new(|s: &mut GameState| {
+                    s.puzzle.sequence.push(0);
+                }),
+            ),
+            (
+                "progress.unlocked_doors",
+                Box::new(|s: &mut GameState| {
+                    s.progress.unlocked_doors.insert(ObjectRef {
+                        room: RoomIdx(0),
+                        index: 0,
+                    });
                 }),
             ),
         ];

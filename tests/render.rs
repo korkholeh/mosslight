@@ -4,10 +4,10 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use mosslight::app::App;
+use mosslight::app::{App, Mode};
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
 use mosslight::game::{
-    Action, AiState, Enemy, EnemyId, EnemyKind, Facing, ObjectRef, Pos, Swing, World,
+    Action, AiState, BossPattern, Enemy, EnemyId, EnemyKind, Facing, ObjectRef, Pos, Swing, World,
 };
 use mosslight::render::{self, Theme};
 use ratatui::backend::TestBackend;
@@ -204,7 +204,7 @@ fn enter_room(app: &mut App, room_id: &str) {
         .room_idx(room_id)
         .unwrap_or_else(|| panic!("{room_id} exists in the embedded world"));
     app.state.room = room_idx;
-    app.state.spawn_enemies();
+    app.state.enter_room();
     app.state.hero.pos = Pos { x: 1, y: 1 };
 }
 
@@ -223,7 +223,7 @@ fn object_kind_glyphs_render_identically_under_every_theme() {
         // One of three plates pressed (Plate + PlatePressed together) and its chest opened
         // (Kind::ChestOpen).
         ("room.old_mill", |app: &mut App| {
-            app.state.plates.pressed.insert(0);
+            app.state.puzzle.pressed.insert(0);
             let room_idx = app.state.room;
             app.state.progress.opened_chests.insert(ObjectRef {
                 room: room_idx,
@@ -406,4 +406,53 @@ fn dialogue_overlay_shows_the_current_node_and_the_continue_prompt() {
         text.contains("[E] continue"),
         "node 0 of 2 is not the last: {text:?}"
     );
+}
+
+#[test]
+fn the_boss_arena_renders_boss_and_telegraph_glyphs_at_60x24() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]);
+        enter_room(app, "room.boss_arena");
+        for e in app.state.enemies.iter_mut() {
+            if e.kind == EnemyKind::Boss {
+                e.ai = AiState::BossWindup {
+                    phase: 1,
+                    until: 1000,
+                    pattern: BossPattern::Slam,
+                };
+            }
+        }
+    });
+    // The boss spawns at (18, 8): col = 6 + 2*18 = 42, row = 3 + 8 = 11. Drawn after the
+    // telegraph, so its own tile shows the boss glyph, not the danger cue.
+    assert_eq!(cell(&buf, 42, 11), "W");
+    // A `Slam` telegraphs the boss's tile and its four orthogonal neighbours; (19, 8) -> col 44.
+    assert_eq!(cell(&buf, 44, 11), "!");
+}
+
+#[test]
+fn the_boss_vulnerable_glyph_differs_from_its_default() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]);
+        enter_room(app, "room.boss_arena");
+        for e in app.state.enemies.iter_mut() {
+            if e.kind == EnemyKind::Boss {
+                e.ai = AiState::BossVulnerable {
+                    phase: 1,
+                    until: 1000,
+                };
+            }
+        }
+    });
+    assert_eq!(cell(&buf, 42, 11), "w");
+}
+
+#[test]
+fn the_victory_overlay_renders_at_60x24() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]);
+        app.mode = Mode::Victory;
+    });
+    let text = buffer_text(&buf);
+    assert!(text.contains("relit"));
 }

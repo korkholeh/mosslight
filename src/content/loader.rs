@@ -168,6 +168,7 @@ mod tests {
              \x20           rows: [\n{rows_a_ron}\n            ],\n\
              \x20           doors: [(id: \"door.a.east\", at: (x: 23, y: 7), to_room: \"room.b\", to_spawn: \"spawn.b.west\", two_way: false)],\n\
              \x20           spawns: [(id: \"spawn.a.start\", at: (x: 2, y: 2))],\n\
+             \x20           beacons: [(id: \"beacon.fixture\", at: (x: 20, y: 3))],\n\
              \x20       ),\n\
              \x20       (\n\
              \x20           id: \"room.b\",\n\

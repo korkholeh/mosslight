@@ -1,18 +1,22 @@
-// The Mosslight overworld: nine rooms in a 3x3 grid plus the dungeon vestibule. Geometry and doors
-// were authored in phase 2; phase 3 added the first enemy spawns (see
+// The Mosslight world: nine overworld rooms in a 3x3 grid plus a six-room dungeon. Geometry and
+// doors were authored in phase 2; phase 3 added the first enemy spawns (see
 // .autodev/phases/03-combat-enemies-determinism/PLAN.md). Phase 4 (see
 // .autodev/phases/04-overworld-content/PLAN.md) makes the start room a cul-de-sac (its east/west
 // doors and their reciprocals in south_shore/fallen_pines are removed), authors the sword, the
-// lantern, three NPCs, the mill's step-plate puzzle, three secret chests off the main route, the
-// lantern-locked dungeon entrance, and the room.sanctuary_gate stub the dungeon expands from in
-// phase 5. Chests, NPCs and torches carved into a room's own dead corridor never share the
-// room's other decorative tiles (water at (2..3, 3..4), the interior wall at (6, 6), bush at
-// (18..19, 11..12)), so every alcove below reuses the same (18..22, 1..2) pocket regardless of
-// which room it is authored in.
+// lantern, three NPCs, the mill's step-plate puzzle, three secret chests off the main route, and
+// the lantern-locked dungeon entrance. Phase 5 (see
+// .autodev/phases/05-dungeon-puzzles-boss/PLAN.md) expands room.sanctuary_gate into a linear
+// six-room dungeon (flooded_hall -> plate_chamber -> torch_vault -> warden_walk -> boss_arena),
+// authors the beacon in room.lighthouse and both `SmallKey` doors. Every locked door is authored
+// one-way (the reciprocal door carries no lock), matching the existing
+// door.east_marsh.dungeon_entrance/door.sanctuary_gate.west pair — see DECISIONS.md. Chests, NPCs
+// and torches carved into a room's own dead corridor never share the room's other decorative tiles
+// (water at (2..3, 3..4), the interior wall at (6, 6), bush at (18..19, 11..12)), so every alcove
+// below reuses the same (18..22, 1..2) pocket regardless of which room it is authored in.
 World(
     version: 1,
     start: (room: "room.lighthouse", spawn: "spawn.lighthouse.start"),
-    route: (ember_required: false, home: "room.lighthouse", goal: "room.sanctuary_gate"),
+    route: (ember_required: true, home: "room.lighthouse", goal: "room.boss_arena"),
     rooms: [
         (
             id: "room.north_ridge",
@@ -360,6 +364,9 @@ World(
                 (id: "spawn.lighthouse.start", at: (x: 12, y: 8)),
             ],
             hint: Some("Arrows/WASD to move. Face the keeper and press E to talk."),
+            beacons: [
+                (id: "beacon.lighthouse", at: (x: 20, y: 5)),
+            ],
             npcs: [
                 (
                     id: "npc.keeper",
@@ -433,13 +440,248 @@ World(
                 "#......................#",
                 "#......................#",
                 "#......................#",
-                "########################",
+                "############+###########",
             ],
+            hint: Some("The flooded sanctuary lies south. No danger has followed you in."),
             doors: [
                 (id: "door.sanctuary_gate.west", at: (x: 0, y: 8), to_room: "room.east_marsh", to_spawn: "spawn.east_marsh.dungeon_entrance"),
+                (id: "door.sanctuary_gate.south", at: (x: 12, y: 15), to_room: "room.flooded_hall", to_spawn: "spawn.flooded_hall.north"),
             ],
             spawns: [
                 (id: "spawn.sanctuary_gate.from_marsh", at: (x: 1, y: 8)),
+                (id: "spawn.sanctuary_gate.south", at: (x: 12, y: 14)),
+            ],
+        ),
+        (
+            id: "room.flooded_hall",
+            name: "Flooded Hall",
+            kind: Dungeon,
+            rows: [
+                "############+###########",
+                "#......................#",
+                "#......................#",
+                "#..~~..................#",
+                "#..~~..................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................+",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "########################",
+            ],
+            doors: [
+                (id: "door.flooded_hall.north", at: (x: 12, y: 0), to_room: "room.sanctuary_gate", to_spawn: "spawn.sanctuary_gate.south"),
+                (id: "door.flooded_hall.east", at: (x: 23, y: 8), to_room: "room.plate_chamber", to_spawn: "spawn.plate_chamber.west", lock: Some(SmallKey)),
+            ],
+            spawns: [
+                (id: "spawn.flooded_hall.north", at: (x: 12, y: 1)),
+                (id: "spawn.flooded_hall.east", at: (x: 22, y: 8)),
+            ],
+            enemies: [
+                (kind: Slime, at: (x: 8, y: 5)),
+                (kind: Slime, at: (x: 15, y: 10)),
+                (kind: Bat, at: (x: 10, y: 11)),
+            ],
+            chests: [
+                (id: "chest.hall_key", at: (x: 5, y: 10), contains: SmallKey),
+            ],
+        ),
+        (
+            id: "room.plate_chamber",
+            name: "Plate Chamber",
+            kind: Dungeon,
+            rows: [
+                "########################",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "+..............?.......+",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "#..............#.......#",
+                "########################",
+            ],
+            doors: [
+                (id: "door.plate_chamber.west", at: (x: 0, y: 8), to_room: "room.flooded_hall", to_spawn: "spawn.flooded_hall.east"),
+                (id: "door.plate_chamber.east", at: (x: 23, y: 8), to_room: "room.torch_vault", to_spawn: "spawn.torch_vault.west"),
+            ],
+            spawns: [
+                (id: "spawn.plate_chamber.west", at: (x: 1, y: 8)),
+                (id: "spawn.plate_chamber.east", at: (x: 22, y: 8)),
+            ],
+            enemies: [
+                (kind: Slime, at: (x: 7, y: 4)),
+            ],
+            blocks: [
+                (id: "block.chamber", at: (x: 9, y: 8)),
+            ],
+            plates: [
+                (id: "plate.chamber", at: (x: 13, y: 8)),
+            ],
+            puzzles: [
+                (
+                    id: "puzzle.chamber_block",
+                    kind: BlockOnPlates,
+                    plates: ["plate.chamber"],
+                    blocks: ["block.chamber"],
+                    reveals: [(x: 15, y: 8)],
+                    reward: None,
+                ),
+            ],
+        ),
+        (
+            id: "room.torch_vault",
+            name: "Torch Vault",
+            kind: Dungeon,
+            rows: [
+                "########################",
+                "#...................?.##",
+                "#....................#.#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "+......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "############+###########",
+            ],
+            hint: Some("A rhyme is scratched into the wall: moss, then water, then stone."),
+            doors: [
+                (id: "door.torch_vault.west", at: (x: 0, y: 8), to_room: "room.plate_chamber", to_spawn: "spawn.plate_chamber.east"),
+                (id: "door.torch_vault.south", at: (x: 12, y: 15), to_room: "room.warden_walk", to_spawn: "spawn.warden_walk.north"),
+            ],
+            spawns: [
+                (id: "spawn.torch_vault.west", at: (x: 1, y: 8)),
+                (id: "spawn.torch_vault.south", at: (x: 12, y: 14)),
+            ],
+            enemies: [
+                (kind: Bat, at: (x: 8, y: 10)),
+                (kind: Bat, at: (x: 16, y: 10)),
+            ],
+            torches: [
+                (id: "torch.vault_moss", at: (x: 5, y: 5)),
+                (id: "torch.vault_water", at: (x: 10, y: 5)),
+                (id: "torch.vault_stone", at: (x: 15, y: 5)),
+            ],
+            chests: [
+                (id: "chest.vault_key", at: (x: 21, y: 1), contains: SmallKey),
+            ],
+            puzzles: [
+                (
+                    id: "puzzle.vault_torches",
+                    kind: TorchSequence,
+                    torches: ["torch.vault_moss", "torch.vault_water", "torch.vault_stone"],
+                    reveals: [(x: 20, y: 1)],
+                    reward: None,
+                ),
+            ],
+        ),
+        (
+            id: "room.warden_walk",
+            name: "Warden Walk",
+            kind: Dungeon,
+            rows: [
+                "############+###########",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................+",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "########################",
+            ],
+            doors: [
+                (id: "door.warden_walk.north", at: (x: 12, y: 0), to_room: "room.torch_vault", to_spawn: "spawn.torch_vault.south"),
+                (id: "door.warden_walk.east", at: (x: 23, y: 8), to_room: "room.boss_arena", to_spawn: "spawn.boss_arena.west", lock: Some(SmallKey)),
+            ],
+            spawns: [
+                (id: "spawn.warden_walk.north", at: (x: 12, y: 1)),
+                (id: "spawn.warden_walk.east", at: (x: 22, y: 8)),
+            ],
+            enemies: [
+                (
+                    kind: Guardian,
+                    at: (x: 6, y: 5),
+                    patrol: Some([
+                        (x: 6, y: 5),
+                        (x: 17, y: 5),
+                        (x: 17, y: 10),
+                        (x: 6, y: 10),
+                    ]),
+                ),
+                (
+                    kind: Guardian,
+                    at: (x: 10, y: 12),
+                    patrol: Some([
+                        (x: 10, y: 12),
+                        (x: 16, y: 12),
+                        (x: 16, y: 3),
+                        (x: 10, y: 3),
+                    ]),
+                ),
+            ],
+        ),
+        (
+            id: "room.boss_arena",
+            name: "Boss Arena",
+            kind: Dungeon,
+            rows: [
+                "########################",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "+......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "########################",
+            ],
+            doors: [
+                (id: "door.boss_arena.west", at: (x: 0, y: 8), to_room: "room.warden_walk", to_spawn: "spawn.warden_walk.east"),
+            ],
+            spawns: [
+                (id: "spawn.boss_arena.west", at: (x: 1, y: 8)),
+            ],
+            enemies: [
+                (
+                    kind: Boss,
+                    at: (x: 18, y: 8),
+                    drops: Some(Ember),
+                    defeat_flag: Some("flag.boss_defeated"),
+                ),
             ],
         ),
     ],

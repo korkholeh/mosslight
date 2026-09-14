@@ -46,6 +46,8 @@ fn maze_world() -> Rc<World> {
         puzzles: Vec::new(),
         torches: Vec::new(),
         plates: Vec::new(),
+        blocks: Vec::new(),
+        beacons: Vec::new(),
         hint: None,
     };
 
@@ -76,6 +78,7 @@ fn state_with_enemy(kind: EnemyKind) -> GameState {
             waypoint: 0,
             until: 0,
         },
+        EnemyKind::Boss => AiState::BossStalk { phase: 1, until: 0 },
     };
     let patrol = if kind == EnemyKind::Guardian {
         vec![
@@ -109,7 +112,12 @@ fn each_kind_keeps_changing_state_for_1000_ticks() {
     // 120 }`) must not count as a state change, or this test cannot detect an enemy that never
     // actually leaves its state — which the slime used to do whenever the hero stayed outside
     // `SLIME_AGGRO_RADIUS`, as it does here (hero at (1,1), slime at (10,8)).
-    for kind in [EnemyKind::Slime, EnemyKind::Bat, EnemyKind::Guardian] {
+    for kind in [
+        EnemyKind::Slime,
+        EnemyKind::Bat,
+        EnemyKind::Guardian,
+        EnemyKind::Boss,
+    ] {
         let mut state = state_with_enemy(kind);
         let mut last_change: Tick = 0;
         for tick in 1..=1000u64 {
@@ -128,7 +136,12 @@ fn each_kind_keeps_changing_state_for_1000_ticks() {
 
 #[test]
 fn enemies_stay_inside_the_room_bounds() {
-    for kind in [EnemyKind::Slime, EnemyKind::Bat, EnemyKind::Guardian] {
+    for kind in [
+        EnemyKind::Slime,
+        EnemyKind::Bat,
+        EnemyKind::Guardian,
+        EnemyKind::Boss,
+    ] {
         let mut state = state_with_enemy(kind);
         for tick in 1..=1000u64 {
             ai::step(&mut state, tick);

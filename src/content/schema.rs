@@ -105,8 +105,8 @@ pub enum Reward {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub enum PuzzleKind {
     StepPlates,
-    PushBlock,
-    Switches,
+    BlockOnPlates,
+    TorchSequence,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -114,6 +114,7 @@ pub enum EnemyKind {
     Slime,
     Bat,
     Guardian,
+    Boss,
 }
 
 fn default_two_way() -> bool {
@@ -189,14 +190,35 @@ pub struct Plate {
     pub at: Pos,
 }
 
+/// A pushable block's authored reset position (spec §7). Its live position is mutable simulation
+/// state (`game::puzzles::PuzzleState.blocks`), not an authored placement, so it is not an
+/// `ObjectKind` — see `Room::block_at`/`block_index`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Block {
+    pub id: String,
+    pub at: Pos,
+}
+
+/// The lighthouse brazier the ember relights (spec §2/§7). An ordinary solid object, interacted
+/// with exactly like a chest.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Beacon {
+    pub id: String,
+    pub at: Pos,
+}
+
 /// An authored object solid enough to block the hero and every enemy, plus its index within its
-/// own `Room::{chests,npcs,torches}` vec. A `Plate` is authored separately (`Room::plate_at`) —
-/// it is the one object kind that is not solid.
+/// own `Room::{chests,npcs,torches,beacons}` vec. A `Plate` is authored separately
+/// (`Room::plate_at`) — it is the one object kind that is not solid. A `Block` is not here either
+/// (see `Block`'s doc comment).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectKind {
     Chest(u16),
     Npc(u16),
     Torch(u16),
+    Beacon(u16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -206,6 +228,12 @@ pub struct EnemySpawn {
     pub at: Pos,
     #[serde(default)]
     pub patrol: Option<Vec<Pos>>,
+    /// Boss only: the reward granted on defeat (typically `Ember`).
+    #[serde(default)]
+    pub drops: Option<Reward>,
+    /// Boss only: the story flag set on defeat, so `enter_room` never respawns it.
+    #[serde(default)]
+    pub defeat_flag: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -213,9 +241,15 @@ pub struct EnemySpawn {
 pub struct Puzzle {
     pub id: String,
     pub kind: PuzzleKind,
-    /// Plate ids that must all be pressed (`StepPlates`).
+    /// Plate ids that must all be pressed (`StepPlates`) or hold a block (`BlockOnPlates`).
     #[serde(default)]
     pub plates: Vec<String>,
+    /// Block ids belonging to this puzzle: exactly one (`BlockOnPlates`, validator-enforced).
+    #[serde(default)]
+    pub blocks: Vec<String>,
+    /// Torch ids naming the required lighting order (`TorchSequence`).
+    #[serde(default)]
+    pub torches: Vec<String>,
     /// `Tile::Hidden` positions revealed when the puzzle is solved.
     #[serde(default)]
     pub reveals: Vec<Pos>,
@@ -250,6 +284,10 @@ pub struct Room {
     pub torches: Vec<Torch>,
     #[serde(default)]
     pub plates: Vec<Plate>,
+    #[serde(default)]
+    pub blocks: Vec<Block>,
+    #[serde(default)]
+    pub beacons: Vec<Beacon>,
     /// Shown in the message row on entry. The §7 teaching prompt of the first room.
     #[serde(default)]
     pub hint: Option<String>,
@@ -271,6 +309,8 @@ impl PartialEq for Room {
             && self.puzzles == other.puzzles
             && self.torches == other.torches
             && self.plates == other.plates
+            && self.blocks == other.blocks
+            && self.beacons == other.beacons
             && self.hint == other.hint
     }
 }
@@ -291,7 +331,7 @@ impl Room {
         self.doors.iter().find(|d| d.at == pos)
     }
 
-    /// The solid authored object (chest, NPC or torch) at `pos`, if any.
+    /// The solid authored object (chest, NPC, torch or beacon) at `pos`, if any.
     pub fn object_at(&self, pos: Pos) -> Option<ObjectKind> {
         if let Some(i) = self.chests.iter().position(|c| c.at == pos) {
             return Some(ObjectKind::Chest(i as u16));
@@ -301,6 +341,9 @@ impl Room {
         }
         if let Some(i) = self.torches.iter().position(|t| t.at == pos) {
             return Some(ObjectKind::Torch(i as u16));
+        }
+        if let Some(i) = self.beacons.iter().position(|b| b.at == pos) {
+            return Some(ObjectKind::Beacon(i as u16));
         }
         None
     }
@@ -319,6 +362,31 @@ impl Room {
         self.plates
             .iter()
             .position(|p| p.id == id)
+            .map(|i| i as u16)
+    }
+
+    /// Index of the block with the given authored id, if any.
+    pub fn block_index(&self, id: &str) -> Option<u16> {
+        self.blocks
+            .iter()
+            .position(|b| b.id == id)
+            .map(|i| i as u16)
+    }
+
+    /// Index of the block authored at `pos`, if any. A block's *live* position tracks
+    /// `PuzzleState.blocks`, not this — this is only the authored reset position.
+    pub fn block_at(&self, pos: Pos) -> Option<u16> {
+        self.blocks
+            .iter()
+            .position(|b| b.at == pos)
+            .map(|i| i as u16)
+    }
+
+    /// The index of the beacon at `pos`, if any.
+    pub fn beacon_at(&self, pos: Pos) -> Option<u16> {
+        self.beacons
+            .iter()
+            .position(|b| b.at == pos)
             .map(|i| i as u16)
     }
 }
@@ -455,6 +523,14 @@ mod tests {
                 id: "plate.a".into(),
                 at: Pos { x: 4, y: 4 },
             }],
+            blocks: vec![Block {
+                id: "block.a".into(),
+                at: Pos { x: 5, y: 5 },
+            }],
+            beacons: vec![Beacon {
+                id: "beacon.a".into(),
+                at: Pos { x: 6, y: 6 },
+            }],
             hint: None,
         }
     }
@@ -471,6 +547,10 @@ mod tests {
             room.object_at(Pos { x: 3, y: 3 }),
             Some(ObjectKind::Torch(0))
         );
+        assert_eq!(
+            room.object_at(Pos { x: 6, y: 6 }),
+            Some(ObjectKind::Beacon(0))
+        );
         assert_eq!(room.object_at(Pos { x: 0, y: 0 }), None);
     }
 
@@ -480,5 +560,14 @@ mod tests {
         assert_eq!(room.plate_at(Pos { x: 4, y: 4 }), Some(0));
         assert_eq!(room.object_at(Pos { x: 4, y: 4 }), None);
         assert_eq!(room.plate_at(Pos { x: 1, y: 1 }), None);
+    }
+
+    #[test]
+    fn a_block_is_not_an_object_kind() {
+        let room = test_room();
+        assert_eq!(room.block_at(Pos { x: 5, y: 5 }), Some(0));
+        assert_eq!(room.object_at(Pos { x: 5, y: 5 }), None);
+        assert_eq!(room.block_index("block.a"), Some(0));
+        assert_eq!(room.block_index("block.missing"), None);
     }
 }

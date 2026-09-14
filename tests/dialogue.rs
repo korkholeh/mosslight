@@ -19,7 +19,7 @@ fn at_npc(room_id: &str, pos: Pos, facing: Facing) -> Runner {
         .unwrap_or_else(|| panic!("{room_id} exists in the embedded world"));
     runner.state.room = room;
     runner.state.hero.pos = pos;
-    runner.state.spawn_enemies();
+    runner.state.enter_room();
     runner.face(facing);
     runner
 }

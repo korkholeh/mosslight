@@ -10,8 +10,9 @@ use ratatui::widgets::{Block, Borders, Widget};
 
 use super::theme::Theme;
 use super::tiles::{glyph, Kind};
+use crate::game::ai::strike_tiles;
 use crate::game::tuning::GUARDIAN_DASH_TILES;
-use crate::game::{AiState, Facing, GameState, Pos, Room, Tile};
+use crate::game::{AiState, Facing, GameState, ObjectRef, Pos, PuzzleKind, Room, Tile};
 
 pub const BLOCK_W: u16 = 50;
 pub const BLOCK_H: u16 = 21;
@@ -114,7 +115,8 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
     }
 
     for (i, plate) in room.plates.iter().enumerate() {
-        let pressed = state.plates.pressed.contains(&(i as u16));
+        let pressed =
+            state.puzzle.pressed.contains(&(i as u16)) || state.puzzle.blocks.contains(&plate.at);
         let kind = if pressed {
             Kind::PlatePressed
         } else {
@@ -141,31 +143,66 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
         let row_y = layout.tile_row(npc.at.y);
         set_tile(buf, col, row_y, Kind::Npc, theme);
     }
+    for beacon in &room.beacons {
+        let col = layout.tile_col(beacon.at.x);
+        let row_y = layout.tile_row(beacon.at.y);
+        set_tile(buf, col, row_y, Kind::Beacon, theme);
+    }
     for (i, torch) in room.torches.iter().enumerate() {
-        let lit = state
+        let permanently_lit = state
             .progress
             .lit_torches
             .iter()
             .any(|o| o.room == room_idx && o.index == i as u16);
+        let sequence_lit = state.puzzle.sequence.contains(&(i as u16));
+        let solved_sequence = room.puzzles.iter().enumerate().any(|(pi, p)| {
+            p.kind == PuzzleKind::TorchSequence
+                && p.torches.contains(&torch.id)
+                && state.progress.solved_puzzles.contains(&ObjectRef {
+                    room: room_idx,
+                    index: pi as u16,
+                })
+        });
+        let lit = permanently_lit || sequence_lit || solved_sequence;
         let kind = if lit { Kind::TorchLit } else { Kind::Torch };
         let col = layout.tile_col(torch.at.x);
         let row_y = layout.tile_row(torch.at.y);
         set_tile(buf, col, row_y, kind, theme);
     }
+    for &pos in &state.puzzle.blocks {
+        let col = layout.tile_col(pos.x);
+        let row_y = layout.tile_row(pos.y);
+        set_tile(buf, col, row_y, Kind::Block, theme);
+    }
     for enemy in state.enemies.iter().filter(|e| e.alive) {
-        if let AiState::GuardianTelegraph { facing, .. } = enemy.ai {
-            for lane_pos in telegraph_lane(room, enemy.pos, facing) {
-                let col = layout.tile_col(lane_pos.x);
-                let row_y = layout.tile_row(lane_pos.y);
-                set_tile(buf, col, row_y, Kind::Telegraph, theme);
+        match enemy.ai {
+            AiState::GuardianTelegraph { facing, .. } => {
+                for lane_pos in telegraph_lane(room, enemy.pos, facing) {
+                    let col = layout.tile_col(lane_pos.x);
+                    let row_y = layout.tile_row(lane_pos.y);
+                    set_tile(buf, col, row_y, Kind::Telegraph, theme);
+                }
             }
+            AiState::BossWindup { pattern, .. } => {
+                for tile_pos in strike_tiles(pattern, enemy.pos, room) {
+                    let col = layout.tile_col(tile_pos.x);
+                    let row_y = layout.tile_row(tile_pos.y);
+                    set_tile(buf, col, row_y, Kind::Telegraph, theme);
+                }
+            }
+            _ => {}
         }
     }
 
     for enemy in state.enemies.iter().filter(|e| e.alive) {
+        let kind = if matches!(enemy.ai, AiState::BossVulnerable { .. }) {
+            Kind::BossVulnerable
+        } else {
+            Kind::from(enemy.kind)
+        };
         let col = layout.tile_col(enemy.pos.x);
         let row_y = layout.tile_row(enemy.pos.y);
-        set_tile(buf, col, row_y, Kind::from(enemy.kind), theme);
+        set_tile(buf, col, row_y, kind, theme);
     }
 
     if let Some(at) = state.hero.attack.as_ref().and_then(|swing| swing.at) {

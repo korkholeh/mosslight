@@ -8,14 +8,16 @@
 use std::collections::{HashSet, VecDeque};
 use std::rc::Rc;
 
-use super::entities::{AiState, Enemy, Facing, Pos};
+use super::entities::{AiState, BossPattern, Enemy, Facing, Pos};
 use super::rng::Rng;
 use super::state::{step_target, GameEvent, GameState, Tick};
 use super::tuning::{
-    BAT_AGGRO_RADIUS, BAT_DART_STEPS, BAT_REST_TICKS, BAT_STEP_TICKS, GUARDIAN_DASH_STEP_TICKS,
-    GUARDIAN_DASH_TILES, GUARDIAN_PATROL_STEP_TICKS, GUARDIAN_PATROL_TICKS, GUARDIAN_RECOVER_TICKS,
-    GUARDIAN_SIGHT, GUARDIAN_TELEGRAPH_TICKS, ROOM_H, ROOM_W, SLIME_AGGRO_RADIUS,
-    SLIME_CHASE_TICKS, SLIME_IDLE_TICKS, SLIME_STEP_TICKS,
+    BAT_AGGRO_RADIUS, BAT_DART_STEPS, BAT_REST_TICKS, BAT_STEP_TICKS, BOSS_P1_STALK_TICKS,
+    BOSS_P1_STEP_TICKS, BOSS_P1_VULNERABLE_TICKS, BOSS_P1_WINDUP_TICKS, BOSS_P2_STALK_TICKS,
+    BOSS_P2_STEP_TICKS, BOSS_P2_VULNERABLE_TICKS, BOSS_P2_WINDUP_TICKS, BOSS_PHASE_TWO_HP,
+    GUARDIAN_DASH_STEP_TICKS, GUARDIAN_DASH_TILES, GUARDIAN_PATROL_STEP_TICKS,
+    GUARDIAN_PATROL_TICKS, GUARDIAN_RECOVER_TICKS, GUARDIAN_SIGHT, GUARDIAN_TELEGRAPH_TICKS,
+    ROOM_H, ROOM_W, SLIME_AGGRO_RADIUS, SLIME_CHASE_TICKS, SLIME_IDLE_TICKS, SLIME_STEP_TICKS,
 };
 use super::world::{EnemyKind, Room, Tile};
 
@@ -33,8 +35,11 @@ fn tile_walkable(room: &Room, revealed: &HashSet<Pos>, pos: Pos) -> bool {
     tile_ok && room.object_at(pos).is_none()
 }
 
-/// The tile-occupancy every enemy sees this tick: the hero's tile plus every other live enemy's
-/// position (never `exclude`'s own), reflecting moves already applied earlier this same tick.
+/// The tile-occupancy every enemy sees this tick: the hero's tile, every other live enemy's
+/// position (never `exclude`'s own, reflecting moves already applied earlier this same tick), and
+/// every current-room block (round-1 review, major: a block is solid to the hero via
+/// `GameState::walkable`, and must be equally solid to enemy pathfinding/stepping, or an enemy can
+/// stand on a block's tile).
 pub fn occupied_positions(state: &GameState, exclude: super::entities::EnemyId) -> HashSet<Pos> {
     let mut set = HashSet::new();
     set.insert(state.hero.pos);
@@ -43,6 +48,7 @@ pub fn occupied_positions(state: &GameState, exclude: super::entities::EnemyId) 
             set.insert(enemy.pos);
         }
     }
+    set.extend(state.puzzle.blocks.iter().copied());
     set
 }
 
@@ -426,6 +432,174 @@ fn step_guardian(
     }
 }
 
+fn boss_pattern_for_phase(phase: u8) -> BossPattern {
+    if phase == 1 {
+        BossPattern::Slam
+    } else {
+        BossPattern::Sweep
+    }
+}
+
+/// A boss enemy should never carry a non-boss `AiState` (only `initial_ai_state` writes a Boss's
+/// initial state today), but `game::update` is total by contract — never panics — and phase 6
+/// deserializes `AiState` from a save file, where a corrupt or hand-edited slot could reach this.
+/// Recovers to phase 1 rather than panicking (round-1 review, minor); `step_boss`'s own match
+/// makes the matching recovery to the state itself.
+fn boss_ai_phase(ai: AiState) -> u8 {
+    match ai {
+        AiState::BossStalk { phase, .. }
+        | AiState::BossWindup { phase, .. }
+        | AiState::BossStrike { phase, .. }
+        | AiState::BossVulnerable { phase, .. } => phase,
+        _ => 1,
+    }
+}
+
+/// The tiles a boss strike of `pattern` centred on `pos` would hit (spec §6: a distinct pattern
+/// per phase, asserted on the tile sets rather than the variant name). `Slam` is `pos` and its
+/// four orthogonal neighbours; `Sweep` is the full row and column through `pos`, each direction
+/// stopped at the first `Tile::Wall` (a door, floor or hazard tile does not block the line).
+/// Shared by `step_boss` (telegraph tiles) and `combat::apply_boss_strike` (hit tiles) so a
+/// telegraph and its strike can never disagree about what they cover.
+pub fn strike_tiles(pattern: BossPattern, pos: Pos, room: &Room) -> Vec<Pos> {
+    match pattern {
+        BossPattern::Slam => {
+            let mut tiles = vec![pos];
+            for dir in DIRS {
+                if let Some(next) = step_target(pos, dir) {
+                    if room.tile_at(next).is_some() {
+                        tiles.push(next);
+                    }
+                }
+            }
+            tiles
+        }
+        BossPattern::Sweep => {
+            let mut tiles = vec![pos];
+            for dir in DIRS {
+                let mut cur = pos;
+                while let Some(next) = step_target(cur, dir) {
+                    match room.tile_at(next) {
+                        Some(Tile::Wall) | None => break,
+                        Some(_) => {
+                            tiles.push(next);
+                            cur = next;
+                        }
+                    }
+                }
+            }
+            tiles
+        }
+    }
+}
+
+/// The boss state machine: `BossStalk` (approach the hero, timer- or pattern-triggered windup) ->
+/// `BossWindup` (telegraph hold) -> `BossStrike` (one tick, resolved by
+/// `combat::apply_boss_strike`) -> `BossVulnerable` (the only window the boss takes damage) ->
+/// back to `BossStalk`. The phase check runs first and unconditionally: crossing the HP threshold
+/// interrupts a windup or a vulnerability window rather than waiting for it to finish, so the
+/// fight can never strand a telegraph without a strike (the design's soft-lock guard).
+#[allow(clippy::too_many_arguments)]
+fn step_boss(
+    enemy: &mut Enemy,
+    room: &Room,
+    revealed: &HashSet<Pos>,
+    hero_pos: Pos,
+    occupied: &HashSet<Pos>,
+    tick: Tick,
+    events: &mut Vec<GameEvent>,
+) {
+    let phase = boss_ai_phase(enemy.ai);
+    if phase == 1 && enemy.hp <= BOSS_PHASE_TWO_HP {
+        enemy.ai = AiState::BossStalk {
+            phase: 2,
+            until: tick + BOSS_P2_STALK_TICKS,
+        };
+        events.push(GameEvent::BossPhaseChanged {
+            id: enemy.id,
+            phase: 2,
+        });
+        return;
+    }
+
+    match enemy.ai {
+        AiState::BossStalk { phase, until } => {
+            let step_ticks = if phase == 1 {
+                BOSS_P1_STEP_TICKS
+            } else {
+                BOSS_P2_STEP_TICKS
+            };
+            if tick >= enemy.move_ready_at {
+                if let Some(dir) = path_step(room, revealed, occupied, enemy.pos, hero_pos)
+                    .or_else(|| local_step(room, revealed, occupied, enemy.pos, hero_pos))
+                {
+                    try_move(enemy, room, revealed, occupied, dir, events);
+                }
+                enemy.move_ready_at = tick + step_ticks;
+            }
+            let pattern = boss_pattern_for_phase(phase);
+            let on_pattern = strike_tiles(pattern, enemy.pos, room).contains(&hero_pos);
+            if on_pattern || tick >= until {
+                let windup_ticks = if phase == 1 {
+                    BOSS_P1_WINDUP_TICKS
+                } else {
+                    BOSS_P2_WINDUP_TICKS
+                };
+                enemy.ai = AiState::BossWindup {
+                    phase,
+                    until: tick + windup_ticks,
+                    pattern,
+                };
+                events.push(GameEvent::BossTelegraph {
+                    id: enemy.id,
+                    tiles: strike_tiles(pattern, enemy.pos, room),
+                });
+            }
+        }
+        AiState::BossWindup {
+            phase,
+            until,
+            pattern,
+        } => {
+            if tick >= until {
+                enemy.ai = AiState::BossStrike { phase, pattern };
+            }
+        }
+        AiState::BossStrike { phase, .. } => {
+            let vuln_ticks = if phase == 1 {
+                BOSS_P1_VULNERABLE_TICKS
+            } else {
+                BOSS_P2_VULNERABLE_TICKS
+            };
+            enemy.ai = AiState::BossVulnerable {
+                phase,
+                until: tick + vuln_ticks,
+            };
+        }
+        AiState::BossVulnerable { phase, until } => {
+            if tick >= until {
+                let stalk_ticks = if phase == 1 {
+                    BOSS_P1_STALK_TICKS
+                } else {
+                    BOSS_P2_STALK_TICKS
+                };
+                enemy.ai = AiState::BossStalk {
+                    phase,
+                    until: tick + stalk_ticks,
+                };
+            }
+        }
+        // Same total-by-construction recovery as `boss_ai_phase` above: a corrupt non-boss
+        // `AiState` on a Boss enemy resets to a fresh phase-1 stalk instead of panicking.
+        _ => {
+            enemy.ai = AiState::BossStalk {
+                phase: 1,
+                until: tick + BOSS_P1_STALK_TICKS,
+            };
+        }
+    }
+}
+
 /// Advances every live enemy by one tick, iterating `enemies` by index in authored order so two
 /// enemies contesting a tile resolve by that order (ADR 0004). Each enemy sees the occupancy as
 /// updated by every enemy processed earlier this same tick.
@@ -475,6 +649,15 @@ pub fn step(state: &mut GameState, tick: Tick) -> Vec<GameEvent> {
                 hero_pos,
                 &occupied,
                 rng,
+                tick,
+                &mut events,
+            ),
+            EnemyKind::Boss => step_boss(
+                enemy,
+                room,
+                &revealed,
+                hero_pos,
+                &occupied,
                 tick,
                 &mut events,
             ),

@@ -33,6 +33,8 @@ impl Theme {
                 Kind::Slime => Color::Green,
                 Kind::Bat => Color::Magenta,
                 Kind::Guardian => Color::Red,
+                Kind::Boss => Color::Red,
+                Kind::BossVulnerable => Color::LightYellow,
                 Kind::Sword => Color::White,
                 Kind::Telegraph => Color::LightRed,
                 Kind::Npc => Color::LightCyan,
@@ -42,6 +44,8 @@ impl Theme {
                 Kind::TorchLit => Color::LightRed,
                 Kind::Plate => Color::Gray,
                 Kind::PlatePressed => Color::LightGreen,
+                Kind::Block => Color::Yellow,
+                Kind::Beacon => Color::LightRed,
             },
         }
     }
@@ -51,7 +55,7 @@ impl Theme {
 mod tests {
     use super::*;
 
-    const ALL_KINDS: [Kind; 20] = [
+    const ALL_KINDS: [Kind; 24] = [
         Kind::Hero,
         Kind::Wall,
         Kind::Floor,
@@ -63,6 +67,8 @@ mod tests {
         Kind::Slime,
         Kind::Bat,
         Kind::Guardian,
+        Kind::Boss,
+        Kind::BossVulnerable,
         Kind::Sword,
         Kind::Telegraph,
         Kind::Npc,
@@ -72,6 +78,8 @@ mod tests {
         Kind::TorchLit,
         Kind::Plate,
         Kind::PlatePressed,
+        Kind::Block,
+        Kind::Beacon,
     ];
 
     #[test]
