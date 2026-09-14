@@ -1,12 +1,18 @@
-// The Mosslight overworld: nine rooms in a 3x3 grid. Geometry and doors were authored in phase 2;
-// phase 3 adds the first enemy spawns, placed to encode spec §7's pacing ramp (see
-// .autodev/phases/03-combat-enemies-determinism/PLAN.md): the start room and room.crossroads stay
-// clear, slimes sit in the middle ring, bats in the north ring, and one guardian patrols the far
-// corner. Chests, NPCs and the dungeon are authored in later phases.
+// The Mosslight overworld: nine rooms in a 3x3 grid plus the dungeon vestibule. Geometry and doors
+// were authored in phase 2; phase 3 added the first enemy spawns (see
+// .autodev/phases/03-combat-enemies-determinism/PLAN.md). Phase 4 (see
+// .autodev/phases/04-overworld-content/PLAN.md) makes the start room a cul-de-sac (its east/west
+// doors and their reciprocals in south_shore/fallen_pines are removed), authors the sword, the
+// lantern, three NPCs, the mill's step-plate puzzle, three secret chests off the main route, the
+// lantern-locked dungeon entrance, and the room.sanctuary_gate stub the dungeon expands from in
+// phase 5. Chests, NPCs and torches carved into a room's own dead corridor never share the
+// room's other decorative tiles (water at (2..3, 3..4), the interior wall at (6, 6), bush at
+// (18..19, 11..12)), so every alcove below reuses the same (18..22, 1..2) pocket regardless of
+// which room it is authored in.
 World(
     version: 1,
     start: (room: "room.lighthouse", spawn: "spawn.lighthouse.start"),
-    route: (ember_required: false, home: "room.lighthouse"),
+    route: (ember_required: false, home: "room.lighthouse", goal: "room.sanctuary_gate"),
     rooms: [
         (
             id: "room.north_ridge",
@@ -15,8 +21,8 @@ World(
             map_index: Some((0, 0)),
             rows: [
                 "########################",
-                "#......................#",
-                "#......................#",
+                "#...................?.##",
+                "#....................#.#",
                 "#..~~..................#",
                 "#..~~..................#",
                 "#......................#",
@@ -50,6 +56,12 @@ World(
                         (x: 8, y: 10),
                     ]),
                 ),
+            ],
+            torches: [
+                (id: "torch.ridge", at: (x: 18, y: 1), reveals: [(x: 20, y: 1)]),
+            ],
+            chests: [
+                (id: "chest.ridge_lore", at: (x: 21, y: 1), contains: Message("An old carving names three: sword, lantern, ember."), secret: true),
             ],
         ),
         (
@@ -89,6 +101,15 @@ World(
                 (kind: Bat, at: (x: 9, y: 5)),
                 (kind: Bat, at: (x: 15, y: 10)),
             ],
+            npcs: [
+                (
+                    id: "npc.forester",
+                    at: (x: 5, y: 5),
+                    dialogue: [
+                        (text: "The old mill's floor plates open a hidden vault. Step on all three to see."),
+                    ],
+                ),
+            ],
         ),
         (
             id: "room.old_mill",
@@ -97,8 +118,8 @@ World(
             map_index: Some((2, 0)),
             rows: [
                 "########################",
-                "#......................#",
-                "#......................#",
+                "#...................?.##",
+                "#....................#.#",
                 "#..~~..................#",
                 "#..~~..................#",
                 "#......................#",
@@ -124,6 +145,23 @@ World(
             enemies: [
                 (kind: Bat, at: (x: 9, y: 5)),
                 (kind: Slime, at: (x: 15, y: 10)),
+            ],
+            plates: [
+                (id: "plate.mill1", at: (x: 5, y: 9)),
+                (id: "plate.mill2", at: (x: 10, y: 9)),
+                (id: "plate.mill3", at: (x: 15, y: 9)),
+            ],
+            puzzles: [
+                (
+                    id: "puzzle.mill_plates",
+                    kind: StepPlates,
+                    plates: ["plate.mill1", "plate.mill2", "plate.mill3"],
+                    reveals: [(x: 20, y: 1)],
+                    reward: None,
+                ),
+            ],
+            chests: [
+                (id: "chest.mill_lantern", at: (x: 21, y: 1), contains: Lantern),
             ],
         ),
         (
@@ -198,85 +236,15 @@ World(
                 (id: "spawn.crossroads.east", at: (x: 22, y: 8)),
                 (id: "spawn.crossroads.west", at: (x: 1, y: 8)),
             ],
+            chests: [
+                (id: "chest.forest_sword", at: (x: 5, y: 5), contains: Sword),
+            ],
         ),
         (
             id: "room.east_marsh",
             name: "East Marsh",
             kind: Overworld,
             map_index: Some((2, 1)),
-            rows: [
-                "############+###########",
-                "#......................#",
-                "#......................#",
-                "#..~~..................#",
-                "#..~~..................#",
-                "#......................#",
-                "#.....#................#",
-                "#......................#",
-                "+......................#",
-                "#......................#",
-                "#......................#",
-                "#.................\"\"...#",
-                "#.................\"\"...#",
-                "#......................#",
-                "#......................#",
-                "############+###########",
-            ],
-            doors: [
-                (id: "door.east_marsh.north", at: (x: 12, y: 0), to_room: "room.old_mill", to_spawn: "spawn.old_mill.south"),
-                (id: "door.east_marsh.south", at: (x: 12, y: 15), to_room: "room.south_shore", to_spawn: "spawn.south_shore.north"),
-                (id: "door.east_marsh.west", at: (x: 0, y: 8), to_room: "room.crossroads", to_spawn: "spawn.crossroads.east"),
-            ],
-            spawns: [
-                (id: "spawn.east_marsh.north", at: (x: 12, y: 1)),
-                (id: "spawn.east_marsh.south", at: (x: 12, y: 14)),
-                (id: "spawn.east_marsh.west", at: (x: 1, y: 8)),
-            ],
-            enemies: [
-                (kind: Slime, at: (x: 10, y: 10)),
-            ],
-        ),
-        (
-            id: "room.fallen_pines",
-            name: "Fallen Pines",
-            kind: Overworld,
-            map_index: Some((0, 2)),
-            rows: [
-                "############+###########",
-                "#......................#",
-                "#......................#",
-                "#..~~..................#",
-                "#..~~..................#",
-                "#......................#",
-                "#.....#................#",
-                "#......................#",
-                "#......................+",
-                "#......................#",
-                "#......................#",
-                "#.................\"\"...#",
-                "#.................\"\"...#",
-                "#......................#",
-                "#......................#",
-                "########################",
-            ],
-            doors: [
-                (id: "door.fallen_pines.north", at: (x: 12, y: 0), to_room: "room.west_grove", to_spawn: "spawn.west_grove.south"),
-                (id: "door.fallen_pines.east", at: (x: 23, y: 8), to_room: "room.lighthouse", to_spawn: "spawn.lighthouse.west"),
-            ],
-            spawns: [
-                (id: "spawn.fallen_pines.north", at: (x: 12, y: 1)),
-                (id: "spawn.fallen_pines.east", at: (x: 22, y: 8)),
-            ],
-            enemies: [
-                (kind: Slime, at: (x: 9, y: 5)),
-                (kind: Bat, at: (x: 15, y: 10)),
-            ],
-        ),
-        (
-            id: "room.lighthouse",
-            name: "Lighthouse",
-            kind: Overworld,
-            map_index: Some((1, 2)),
             rows: [
                 "############+###########",
                 "#......................#",
@@ -293,25 +261,79 @@ World(
                 "#.................\"\"...#",
                 "#......................#",
                 "#......................#",
-                "########################",
+                "############+###########",
             ],
             doors: [
-                (id: "door.lighthouse.north", at: (x: 12, y: 0), to_room: "room.crossroads", to_spawn: "spawn.crossroads.south"),
-                (id: "door.lighthouse.east", at: (x: 23, y: 8), to_room: "room.south_shore", to_spawn: "spawn.south_shore.west"),
-                (id: "door.lighthouse.west", at: (x: 0, y: 8), to_room: "room.fallen_pines", to_spawn: "spawn.fallen_pines.east"),
+                (id: "door.east_marsh.north", at: (x: 12, y: 0), to_room: "room.old_mill", to_spawn: "spawn.old_mill.south"),
+                (id: "door.east_marsh.south", at: (x: 12, y: 15), to_room: "room.south_shore", to_spawn: "spawn.south_shore.north"),
+                (id: "door.east_marsh.west", at: (x: 0, y: 8), to_room: "room.crossroads", to_spawn: "spawn.crossroads.east"),
+                (id: "door.east_marsh.dungeon_entrance", at: (x: 23, y: 8), to_room: "room.sanctuary_gate", to_spawn: "spawn.sanctuary_gate.from_marsh", lock: Some(Lantern)),
             ],
             spawns: [
-                (id: "spawn.lighthouse.north", at: (x: 12, y: 1)),
-                (id: "spawn.lighthouse.east", at: (x: 22, y: 8)),
-                (id: "spawn.lighthouse.west", at: (x: 1, y: 8)),
-                (id: "spawn.lighthouse.start", at: (x: 12, y: 8)),
+                (id: "spawn.east_marsh.north", at: (x: 12, y: 1)),
+                (id: "spawn.east_marsh.south", at: (x: 12, y: 14)),
+                (id: "spawn.east_marsh.west", at: (x: 1, y: 8)),
+                (id: "spawn.east_marsh.dungeon_entrance", at: (x: 22, y: 8)),
+            ],
+            enemies: [
+                (kind: Slime, at: (x: 10, y: 10)),
+            ],
+            npcs: [
+                (
+                    id: "npc.warden",
+                    at: (x: 18, y: 5),
+                    dialogue: [
+                        (text: "So the keeper finally told you. The marsh hides a locked door east — you'll need a light to pass."),
+                    ],
+                    condition: Some("flag.told_about_sanctuary"),
+                ),
             ],
         ),
         (
-            id: "room.south_shore",
-            name: "South Shore",
+            id: "room.fallen_pines",
+            name: "Fallen Pines",
             kind: Overworld,
-            map_index: Some((2, 2)),
+            map_index: Some((0, 2)),
+            rows: [
+                "############+###########",
+                "#...................?.##",
+                "#....................#.#",
+                "#..~~..................#",
+                "#..~~..................#",
+                "#......................#",
+                "#.....#................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#.................\"\"...#",
+                "#.................\"\"...#",
+                "#......................#",
+                "#......................#",
+                "########################",
+            ],
+            doors: [
+                (id: "door.fallen_pines.north", at: (x: 12, y: 0), to_room: "room.west_grove", to_spawn: "spawn.west_grove.south"),
+            ],
+            spawns: [
+                (id: "spawn.fallen_pines.north", at: (x: 12, y: 1)),
+            ],
+            enemies: [
+                (kind: Slime, at: (x: 9, y: 5)),
+                (kind: Bat, at: (x: 15, y: 10)),
+            ],
+            torches: [
+                (id: "torch.pines", at: (x: 18, y: 1), reveals: [(x: 20, y: 1)]),
+            ],
+            chests: [
+                (id: "chest.pines_heart", at: (x: 21, y: 1), contains: HeartContainer, secret: true),
+            ],
+        ),
+        (
+            id: "room.lighthouse",
+            name: "Lighthouse",
+            kind: Overworld,
+            map_index: Some((1, 2)),
             rows: [
                 "############+###########",
                 "#......................#",
@@ -321,7 +343,52 @@ World(
                 "#......................#",
                 "#.....#................#",
                 "#......................#",
-                "+......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#.................\"\"...#",
+                "#.................\"\"...#",
+                "#......................#",
+                "#......................#",
+                "########################",
+            ],
+            doors: [
+                (id: "door.lighthouse.north", at: (x: 12, y: 0), to_room: "room.crossroads", to_spawn: "spawn.crossroads.south"),
+            ],
+            spawns: [
+                (id: "spawn.lighthouse.north", at: (x: 12, y: 1)),
+                (id: "spawn.lighthouse.start", at: (x: 12, y: 8)),
+            ],
+            hint: Some("Arrows/WASD to move. Face the keeper and press E to talk."),
+            npcs: [
+                (
+                    id: "npc.keeper",
+                    at: (x: 5, y: 5),
+                    dialogue: [
+                        (text: "Welcome, traveler. The lighthouse has gone dark."),
+                        (
+                            text: "The sanctuary beyond the marsh guards an ancient ember. Seek it once you bear the lantern.",
+                            sets_flag: Some("flag.told_about_sanctuary"),
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        (
+            id: "room.south_shore",
+            name: "South Shore",
+            kind: Overworld,
+            map_index: Some((2, 2)),
+            rows: [
+                "############+###########",
+                "#...................?.##",
+                "#....................#.#",
+                "#..~~..................#",
+                "#..~~..................#",
+                "#......................#",
+                "#.....#................#",
+                "#......................#",
+                "#......................#",
                 "#......................#",
                 "#......................#",
                 "#.................\"\"...#",
@@ -332,14 +399,47 @@ World(
             ],
             doors: [
                 (id: "door.south_shore.north", at: (x: 12, y: 0), to_room: "room.east_marsh", to_spawn: "spawn.east_marsh.south"),
-                (id: "door.south_shore.west", at: (x: 0, y: 8), to_room: "room.lighthouse", to_spawn: "spawn.lighthouse.east"),
             ],
             spawns: [
                 (id: "spawn.south_shore.north", at: (x: 12, y: 1)),
-                (id: "spawn.south_shore.west", at: (x: 1, y: 8)),
             ],
             enemies: [
                 (kind: Slime, at: (x: 10, y: 10)),
+            ],
+            torches: [
+                (id: "torch.shore", at: (x: 18, y: 1), reveals: [(x: 20, y: 1)]),
+            ],
+            chests: [
+                (id: "chest.shore_key", at: (x: 21, y: 1), contains: SmallKey, secret: true),
+            ],
+        ),
+        (
+            id: "room.sanctuary_gate",
+            name: "Sanctuary Gate",
+            kind: Dungeon,
+            rows: [
+                "########################",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "+..........>...........#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "#......................#",
+                "########################",
+            ],
+            doors: [
+                (id: "door.sanctuary_gate.west", at: (x: 0, y: 8), to_room: "room.east_marsh", to_spawn: "spawn.east_marsh.dungeon_entrance"),
+            ],
+            spawns: [
+                (id: "spawn.sanctuary_gate.from_marsh", at: (x: 1, y: 8)),
             ],
         ),
     ],

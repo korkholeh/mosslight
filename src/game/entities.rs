@@ -36,6 +36,11 @@ pub struct Hero {
     /// (nothing heals it back up this phase) across every subsequent tick a caller still ticks —
     /// a headless test, or a future replay tool.
     pub died: bool,
+    pub has_sword: bool,
+    pub has_lantern: bool,
+    /// Written in phase 5, hashed and rendered from here so the inventory screen does not change
+    /// shape later.
+    pub has_ember: bool,
 }
 
 impl Hero {
@@ -51,6 +56,9 @@ impl Hero {
             attack_ready_at: 0,
             invuln_until: 0,
             died: false,
+            has_sword: false,
+            has_lantern: false,
+            has_ember: false,
         }
     }
 
@@ -75,6 +83,25 @@ impl Hero {
 /// this index never dangles within a room's lifetime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EnemyId(pub u16);
+
+/// A room-local authored object: `(room, index into that room's vec)`. Dense and `Ord`, so
+/// `BTreeSet` iteration stays deterministic for hashing. Not `Serialize` for the same reason
+/// `Progress` is not (see `state.rs`): `RoomIdx` is a dense index assigned by file order, and
+/// phase 6 defines the on-disk shape (ids, not indices) rather than this phase fixing the wrong
+/// one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ObjectRef {
+    pub room: super::world::RoomIdx,
+    pub index: u16,
+}
+
+/// The simulation's cursor into an open dialogue. `GameState` owns it directly so `sets_flag`
+/// writes stay inside the pure `update()` pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DialogueState {
+    pub npc: ObjectRef,
+    pub node: u16,
+}
 
 /// One explicit state machine per kind (ADR 0004): flat variants rather than four nested enums,
 /// so a `match` over the whole machine fits on one screen.

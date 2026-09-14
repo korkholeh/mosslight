@@ -6,7 +6,9 @@ use std::rc::Rc;
 
 use mosslight::app::App;
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
-use mosslight::game::{Action, AiState, Enemy, EnemyId, EnemyKind, Facing, Pos, Swing, World};
+use mosslight::game::{
+    Action, AiState, Enemy, EnemyId, EnemyKind, Facing, ObjectRef, Pos, Swing, World,
+};
 use mosslight::render::{self, Theme};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
@@ -124,7 +126,10 @@ fn combat_scene_setup(app: &mut App) {
         Enemy {
             id: EnemyId(0),
             kind: EnemyKind::Slime,
-            pos: Pos { x: 5, y: 5 },
+            // Away from npc.keeper's tile (5, 5) — the scene paints objects before enemies, so an
+            // overlapping enemy would silently hide the NPC glyph from every assertion below
+            // (round-2 review, major).
+            pos: Pos { x: 5, y: 10 },
             facing: Facing::South,
             hp: 2,
             ai: AiState::SlimeIdle { until: 1000 },
@@ -159,8 +164,8 @@ fn combat_scene_setup(app: &mut App) {
 fn enemy_sword_and_telegraph_glyphs_land_on_expected_cells_60x24() {
     let buf = render_at(60, 24, combat_scene_setup);
 
-    // Slime glyph at tile (5, 5): col = 5 + 1 + 2*5 = 16, row = 1 + 2 + 5 = 8.
-    assert_eq!(cell(&buf, 16, 8), "o");
+    // Slime glyph at tile (5, 10): col = 5 + 1 + 2*5 = 16, row = 1 + 2 + 10 = 13.
+    assert_eq!(cell(&buf, 16, 13), "o");
     // Guardian glyph at tile (8, 5): col = 22, row = 8. Drawn after the telegraph lane, so its
     // own tile is never hidden by the danger cue.
     assert_eq!(cell(&buf, 22, 8), "&");
@@ -191,6 +196,81 @@ fn scene_renders_identical_characters_under_every_theme() {
     assert_eq!(texts[1], texts[2], "gameboy vs ansi glyphs differ");
 }
 
+/// Drops the hero into `room_id`, rebuilding its enemies exactly as a real door transition would.
+fn enter_room(app: &mut App, room_id: &str) {
+    let room_idx = app
+        .state
+        .world
+        .room_idx(room_id)
+        .unwrap_or_else(|| panic!("{room_id} exists in the embedded world"));
+    app.state.room = room_idx;
+    app.state.spawn_enemies();
+    app.state.hero.pos = Pos { x: 1, y: 1 };
+}
+
+/// One scene per new object kind and its stateful variant (`Chest`/`ChestOpen`,
+/// `Torch`/`TorchLit`, `Plate`/`PlatePressed`, `Npc`), each checked for identical rendered text
+/// under every theme — the RISKS #10 mitigation this phase claims (only a glyph distinguishes an
+/// object; colour must never be the only cue). `combat_scene_setup`'s room (`room.lighthouse`)
+/// already exercises `Npc` above now that the slime no longer sits on `npc.keeper`'s tile.
+type SceneSetup = (&'static str, fn(&mut App));
+
+#[test]
+fn object_kind_glyphs_render_identically_under_every_theme() {
+    let setups: Vec<SceneSetup> = vec![
+        // chest.forest_sword, unopened -> Kind::Chest.
+        ("room.crossroads", |_app: &mut App| {}),
+        // One of three plates pressed (Plate + PlatePressed together) and its chest opened
+        // (Kind::ChestOpen).
+        ("room.old_mill", |app: &mut App| {
+            app.state.plates.pressed.insert(0);
+            let room_idx = app.state.room;
+            app.state.progress.opened_chests.insert(ObjectRef {
+                room: room_idx,
+                index: 0,
+            });
+        }),
+        // torch.ridge, unlit -> Kind::Torch.
+        ("room.north_ridge", |_app: &mut App| {}),
+        // torch.shore, lit -> Kind::TorchLit.
+        ("room.south_shore", |app: &mut App| {
+            let room_idx = app.state.room;
+            app.state.progress.lit_torches.insert(ObjectRef {
+                room: room_idx,
+                index: 0,
+            });
+        }),
+    ];
+
+    for (room_id, mutate) in setups {
+        let mut app = App::new(&cfg(), world());
+        app.apply(&[Action::Confirm]);
+        enter_room(&mut app, room_id);
+        mutate(&mut app);
+        app.on_resize(60, 24);
+
+        let texts: Vec<String> = [ThemeName::Mono, ThemeName::Gameboy, ThemeName::Ansi]
+            .into_iter()
+            .map(|theme_name| {
+                let theme = Theme::new(theme_name);
+                let backend = TestBackend::new(60, 24);
+                let mut term = Terminal::new(backend).unwrap();
+                term.draw(|f| render::draw(f, &app, theme)).unwrap();
+                buffer_text(term.backend().buffer())
+            })
+            .collect();
+
+        assert_eq!(
+            texts[0], texts[1],
+            "{room_id}: mono vs gameboy glyphs differ"
+        );
+        assert_eq!(
+            texts[1], texts[2],
+            "{room_id}: gameboy vs ansi glyphs differ"
+        );
+    }
+}
+
 #[test]
 fn main_menu_overlay_lists_all_items() {
     let buf = render_at(60, 24, |_app| {});
@@ -199,4 +279,131 @@ fn main_menu_overlay_lists_all_items() {
     assert!(text.contains("New Game"));
     assert!(text.contains("Help"));
     assert!(text.contains("Quit"));
+}
+
+#[test]
+fn npc_glyph_and_room_hint_render_in_the_start_room_60x24() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]); // New Game -> Playing, in room.lighthouse
+    });
+    // npc.keeper sits at tile (5, 5): col = 5 + 1 + 2*5 = 16, row = 1 + 2 + 5 = 8.
+    assert_eq!(cell(&buf, 16, 8), "N");
+
+    let message_row: String = (0..60).map(|x| cell(&buf, x, 20)).collect();
+    assert!(
+        message_row.contains("Face the keeper"),
+        "the start room's hint must show on entry: {message_row:?}"
+    );
+}
+
+#[test]
+fn map_overlay_hides_unvisited_rooms_and_marks_the_current_one() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]);
+        app.apply(&[Action::ToggleMap]);
+    });
+    let text = buffer_text(&buf);
+    assert!(text.contains("Map"));
+    assert!(text.contains("Lighthouse"), "current room's name: {text:?}");
+    assert!(text.contains("you") && text.contains("chest") && text.contains("dungeon"));
+
+    // The 3x3 grid sits inside a `centered_box(60x24 frame, 42, 11)` (x=9, y=6, bordered), so the
+    // grid's own text starts at (10, 7); a cell for map_index (mx, my) lands at column 10+2*mx,
+    // row 7+my. room.lighthouse's map_index (1, 2) -> (12, 9).
+    assert_eq!(
+        cell(&buf, 12, 9),
+        "@",
+        "the current room must be marked on the grid"
+    );
+
+    // room.crossroads (map_index (1, 1) -> (12, 8)) is unvisited: its cell must stay blank, not
+    // merely unmentioned — the whole point of `draw_map`'s visited-gate is that an unvisited room
+    // renders nothing, distinguishing "hidden" from "rendered but empty".
+    assert_eq!(
+        cell(&buf, 12, 8),
+        " ",
+        "an unvisited neighbour must render blank"
+    );
+}
+
+#[test]
+fn map_overlay_reveals_a_visited_non_current_room_with_its_unopened_chest() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]);
+        let crossroads = app
+            .state
+            .world
+            .room_idx("room.crossroads")
+            .expect("room.crossroads exists");
+        // Simulate having already visited crossroads (it holds `chest.forest_sword`, unopened)
+        // without moving the hero out of the current room, isolating the visited-marking rule
+        // from door traversal.
+        app.state.progress.visited.insert(crossroads);
+        app.apply(&[Action::ToggleMap]);
+    });
+
+    // Same (10, 7)-anchored grid as above; room.crossroads' map_index (1, 1) -> (12, 8).
+    assert_eq!(
+        cell(&buf, 12, 8),
+        "C",
+        "a visited room holding an unopened chest must show 'C' once revealed"
+    );
+}
+
+#[test]
+fn map_overlay_does_not_mark_a_room_whose_only_chest_is_secret() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]);
+        // room.south_shore's only chest (`chest.shore_key`) is secret and behind an unlit torch —
+        // the map must not point at it just because the room has been visited.
+        let south_shore = app
+            .state
+            .world
+            .room_idx("room.south_shore")
+            .expect("room.south_shore exists");
+        app.state.progress.visited.insert(south_shore);
+        app.apply(&[Action::ToggleMap]);
+    });
+
+    // room.south_shore's map_index (2, 2) -> column 10+2*2=14, row 7+2=9.
+    assert_eq!(
+        cell(&buf, 14, 9),
+        ".",
+        "a room whose only chest is secret must not render 'C'"
+    );
+}
+
+#[test]
+fn inventory_overlay_shows_equipment_keys_and_hearts() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]);
+        app.apply(&[Action::ToggleInventory]);
+    });
+    let text = buffer_text(&buf);
+    assert!(text.contains("Inventory"));
+    assert!(text.contains("Sword: no"));
+    assert!(text.contains("Lantern: no"));
+    assert!(text.contains("Ember: no"));
+    assert!(text.contains("Keys: 0"));
+    assert!(text.contains("Hearts: 6/6"));
+    assert!(text.contains("Flags: none"));
+}
+
+#[test]
+fn dialogue_overlay_shows_the_current_node_and_the_continue_prompt() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]);
+        // npc.keeper sits at (5, 5); stand one tile south and face it.
+        app.state.hero.pos = Pos { x: 5, y: 6 };
+        app.state.hero.facing = Facing::North;
+        let sim_actions = app.apply(&[Action::Interact]);
+        app.tick(&sim_actions);
+    });
+    let text = buffer_text(&buf);
+    assert!(text.contains("npc.keeper"));
+    assert!(text.contains("Welcome, traveler"));
+    assert!(
+        text.contains("[E] continue"),
+        "node 0 of 2 is not the last: {text:?}"
+    );
 }

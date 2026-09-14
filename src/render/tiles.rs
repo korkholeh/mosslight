@@ -20,6 +20,13 @@ pub enum Kind {
     Guardian,
     Sword,
     Telegraph,
+    Npc,
+    Chest,
+    ChestOpen,
+    Torch,
+    TorchLit,
+    Plate,
+    PlatePressed,
 }
 
 impl From<Tile> for Kind {
@@ -65,6 +72,13 @@ pub fn glyph(kind: Kind) -> char {
         Kind::Guardian => '&',
         Kind::Sword => '/',
         Kind::Telegraph => '!',
+        Kind::Npc => 'N',
+        Kind::Chest => 'C',
+        Kind::ChestOpen => 'c',
+        Kind::Torch => 't',
+        Kind::TorchLit => 'T',
+        Kind::Plate => '_',
+        Kind::PlatePressed => '=',
     }
 }
 
@@ -72,7 +86,7 @@ pub fn glyph(kind: Kind) -> char {
 mod tests {
     use super::*;
 
-    const ALL_KINDS: [Kind; 13] = [
+    const ALL_KINDS: [Kind; 20] = [
         Kind::Hero,
         Kind::Wall,
         Kind::Floor,
@@ -86,12 +100,26 @@ mod tests {
         Kind::Guardian,
         Kind::Sword,
         Kind::Telegraph,
+        Kind::Npc,
+        Kind::Chest,
+        Kind::ChestOpen,
+        Kind::Torch,
+        Kind::TorchLit,
+        Kind::Plate,
+        Kind::PlatePressed,
     ];
 
     #[test]
-    fn every_kind_has_a_glyph() {
-        for kind in ALL_KINDS {
-            assert_ne!(glyph(kind), '\0');
-        }
+    fn every_glyph_is_distinct() {
+        // RISKS #10 (monochrome unreadable) rests on every kind being distinguishable by glyph
+        // alone; `assert_ne!(glyph(kind), '\0')` over an exhaustive match can never fail (round-2
+        // review, major) and says nothing about distinctness. A `HashSet` catches a copy-pasted
+        // glyph directly.
+        let glyphs: std::collections::HashSet<char> = ALL_KINDS.iter().map(|&k| glyph(k)).collect();
+        assert_eq!(
+            glyphs.len(),
+            ALL_KINDS.len(),
+            "two Kinds share a glyph, breaking monochrome distinguishability"
+        );
     }
 }

@@ -78,7 +78,11 @@ fn fresh() -> GameState {
     // room.lighthouse authors zero enemy spawns (see PLAN.md's pacing table), so `fresh()` starts
     // with an empty `enemies` vec that every test here populates explicitly.
     let world = Rc::new(mosslight::content::load().expect("embedded world validates"));
-    GameState::new(1, world)
+    let mut state = GameState::new(1, world);
+    // Phase 4 gates `Attack` on `has_sword`; these tests are about swing/cooldown/hit mechanics,
+    // not about the sword-pickup gate itself, so the precondition is established directly.
+    state.hero.has_sword = true;
+    state
 }
 
 fn slime_with_hp(id: EnemyId, pos: Pos, hp: u8) -> Enemy {
@@ -315,7 +319,14 @@ fn knockback_stops_adjacent_to_an_obstacle() {
 
     // room.lighthouse's west wall sits at x = 0; walking 5 tiles west from x = 3 must stop at
     // x = 1, adjacent to the wall, never on or past it.
-    let result = combat::knockback(room, &occupied, Pos { x: 3, y: 5 }, Facing::West, 5);
+    let result = combat::knockback(
+        room,
+        &HashSet::new(),
+        &occupied,
+        Pos { x: 3, y: 5 },
+        Facing::West,
+        5,
+    );
     assert_eq!(result, Pos { x: 1, y: 5 });
 }
 
@@ -327,7 +338,14 @@ fn knockback_never_lands_on_a_door_tile() {
 
     // room.lighthouse has a west door at (0, 8); walking west from (2, 8) must stop at (1, 8),
     // never stepping onto the door tile itself.
-    let result = combat::knockback(room, &occupied, Pos { x: 2, y: 8 }, Facing::West, 5);
+    let result = combat::knockback(
+        room,
+        &HashSet::new(),
+        &occupied,
+        Pos { x: 2, y: 8 },
+        Facing::West,
+        5,
+    );
     assert_eq!(result, Pos { x: 1, y: 8 });
     assert_ne!(room.tile_at(result), Some(Tile::Door));
 }

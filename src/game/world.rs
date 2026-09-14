@@ -3,6 +3,7 @@
 //! `src/content/`.
 
 pub use crate::content::{
-    Chest, Door, EnemyKind, EnemySpawn, LockKind, Npc, Puzzle, PuzzleKind, Reward, Room, RoomIdx,
-    RoomKind, Route, Spawn, StartPoint, Tile, TileGrid, World,
+    Chest, DialogueNode, Door, EnemyKind, EnemySpawn, LockKind, Npc, ObjectKind, Plate, Puzzle,
+    PuzzleKind, Reward, Room, RoomIdx, RoomKind, Route, Spawn, StartPoint, Tile, TileGrid, Torch,
+    World,
 };

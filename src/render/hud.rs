@@ -6,10 +6,25 @@ use ratatui::style::Style;
 use super::scene::Layout;
 use crate::game::GameState;
 
+/// The equipment shown as `Item:` — priority order matches acquisition order in the overworld
+/// (sword, then lantern); `none` before either is held.
+fn item_label(state: &GameState) -> &'static str {
+    if state.hero.has_sword {
+        "sword"
+    } else if state.hero.has_lantern {
+        "lantern"
+    } else {
+        "none"
+    }
+}
+
 pub fn draw_hud(buf: &mut Buffer, layout: Layout, state: &GameState) {
     let hp_text = format!(
-        "HP {}/{}  Item: none  Keys: {}",
-        state.hero.health_halves, state.hero.max_health_halves, state.hero.keys
+        "HP {}/{}  Item: {}  Keys: {}",
+        state.hero.health_halves,
+        state.hero.max_health_halves,
+        item_label(state),
+        state.hero.keys
     );
     buf.set_string(layout.x0, layout.hud_row(), hp_text, Style::default());
 }

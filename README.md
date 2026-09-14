@@ -83,11 +83,14 @@ misbehaves in a sandboxed environment.
 
 See `CHANGELOG.md` for user-visible changes.
 
-## Known limitations (phase 3)
+## Known limitations (phase 4)
 
 The game so far: the terminal skeleton and mode machine, a hand-authored nine-room overworld with
-working room transitions, sword combat, three enemy kinds (slime, bat, guardian) with readable
-per-kind AI, and death/retry from the last room entered. Not yet built: the dungeon, the boss, NPCs,
-chests and items (including the sword and lantern as things the hero must find rather than already
-holding), puzzles, and the save system — Continue always reports "no save yet". See
-`.autodev/ROADMAP.md` for what each later phase adds, and `.autodev/PROGRESS.md` for current status.
+working room transitions and pacing, sword combat, three enemy kinds (slime, bat, guardian) with
+readable per-kind AI, death/retry from the last room entered, three NPCs with branching dialogue,
+chests, a lantern that lights torches and reveals hidden passages, a step-plate puzzle, three secret
+rewards, and Map/Inventory screens. The hero starts with neither sword nor lantern and finds both in
+the overworld. Not yet built: the six-room dungeon beyond its entrance vestibule, the two-phase
+boss, the ember, key consumption, push-block/switch puzzles, and the save system — Continue always
+reports "no save yet". See `.autodev/ROADMAP.md` for what each later phase adds, and
+`.autodev/PROGRESS.md` for current status.

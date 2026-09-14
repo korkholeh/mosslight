@@ -17,6 +17,10 @@ fn state_at(world: &Rc<World>, room: RoomIdx, pos: Pos) -> GameState {
     state.room = room;
     state.progress.visited = BTreeSet::from([room]);
     state.hero.pos = pos;
+    // Phase 4 authors a lantern-locked door (`door.east_marsh.dungeon_entrance`); these tests are
+    // generic door-wiring/geometry checks, not lock-gating (see `tests/overworld.rs` for that), so
+    // the precondition every lock needs is established directly.
+    state.hero.has_lantern = true;
     state
 }
 
@@ -124,29 +128,38 @@ fn every_door_leads_to_its_target_room() {
             // wired to the wrong room (e.g. `door.crossroads.north` pointing at `room.old_mill`
             // instead of `room.stone_circle`) would still pass every assertion above — the
             // engine faithfully honours a wrong declaration (round-1 review, minor).
+            //
+            // The grid itself is the 9-room overworld only: a door into the dungeon vestibule
+            // (phase 4's `room.sanctuary_gate`, `map_index: None`) has no grid cell to check
+            // against.
             let edge = edge_of(door.at);
-            let (dx, dy) = edge.map_index_delta();
-            let (col, row) = room
-                .map_index
-                .unwrap_or_else(|| panic!("{} has no map_index", room.id));
-            let expected = (col as i32 + dx, row as i32 + dy);
             let target_room = world.room(target_idx);
-            assert_eq!(
-                target_room.map_index.map(|(c, r)| (c as i32, r as i32)),
-                Some(expected),
-                "{}: the {} neighbour of {:?} should be map_index {expected:?}, but '{}' has map_index {:?}",
-                door.id,
-                edge.label(),
-                room.map_index,
-                door.to_room,
-                target_room.map_index
-            );
-            assert!(
-                door.id.ends_with(edge.label()),
-                "{}: door id should end with its own edge '{}'",
-                door.id,
-                edge.label()
-            );
+            if let Some((col, row)) = room.map_index {
+                if let Some((tc, tr)) = target_room.map_index {
+                    let (dx, dy) = edge.map_index_delta();
+                    let expected = (col as i32 + dx, row as i32 + dy);
+                    assert_eq!(
+                        (tc as i32, tr as i32),
+                        expected,
+                        "{}: the {} neighbour of {:?} should be map_index {expected:?}, but '{}' has map_index {:?}",
+                        door.id,
+                        edge.label(),
+                        room.map_index,
+                        door.to_room,
+                        target_room.map_index
+                    );
+                }
+            }
+            // The lantern-locked dungeon entrance is named for what it is, not for the wall edge
+            // it sits on (PLAN.md); every ordinary overworld door still follows the convention.
+            if door.id != "door.east_marsh.dungeon_entrance" {
+                assert!(
+                    door.id.ends_with(edge.label()),
+                    "{}: door id should end with its own edge '{}'",
+                    door.id,
+                    edge.label()
+                );
+            }
         }
     }
 }

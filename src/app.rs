@@ -18,6 +18,9 @@ pub enum Mode {
     Help,
     TooSmall,
     GameOver,
+    Dialogue,
+    Map,
+    Inventory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +137,11 @@ impl App {
                 Mode::Help => self.apply_help(action),
                 Mode::TooSmall => self.apply_too_small(action),
                 Mode::GameOver => self.apply_game_over(action),
+                Mode::Dialogue => self.apply_dialogue(action),
+                Mode::Map => self.apply_overlay(action, Mode::Map, Action::ToggleMap),
+                Mode::Inventory => {
+                    self.apply_overlay(action, Mode::Inventory, Action::ToggleInventory)
+                }
             }
             if mode_before != Mode::Playing && self.mode == Mode::Playing {
                 drop_pending(&mut sim_actions);
@@ -155,6 +163,12 @@ impl App {
                 MenuCursor::NewGame => {
                     self.state = GameState::new(self.seed, Rc::clone(&self.world));
                     self.checkpoint = self.state.clone();
+                    // The start room's hint never fires a `RoomEntered` event (it is the initial
+                    // room, not one the hero transitions into — see `GameState::new`), so New
+                    // Game shows it directly instead.
+                    if let Some(hint) = &self.state.room().hint {
+                        self.message = hint.clone();
+                    }
                     self.set_mode(Mode::Playing);
                 }
                 MenuCursor::Help => self.set_mode(Mode::Help),
@@ -171,7 +185,44 @@ impl App {
             Action::Cancel => self.set_mode(Mode::Paused),
             Action::Help => self.set_mode(Mode::Help),
             Action::Quit => self.set_mode(Mode::ConfirmQuit),
+            Action::ToggleMap => self.set_mode(Mode::Map),
+            Action::ToggleInventory => self.set_mode(Mode::Inventory),
             other => sim_actions.push(other),
+        }
+    }
+
+    /// `Map` and `Inventory` share one shape: `Cancel` or the key that opened them closes back to
+    /// `Playing`, `Quit` still reaches `ConfirmQuit`, everything else is ignored — both are
+    /// read-only screens over `self.state`.
+    fn apply_overlay(&mut self, action: Action, mode: Mode, toggle: Action) {
+        debug_assert_eq!(self.mode, mode);
+        if action == Action::Cancel || action == toggle {
+            self.set_mode(Mode::Playing);
+        } else if action == Action::Quit {
+            self.set_mode(Mode::ConfirmQuit);
+        }
+    }
+
+    /// Routes `Confirm`/`Cancel` straight into `update` at the *current* tick (not an incremented
+    /// one), so a dialogue responds to the keypress within the same iteration and `tick_counter`
+    /// provably does not advance while it is open (see `game::state::update`'s dialogue branch).
+    /// `DialogueEnded` closes back to `Playing`; the existing `mode_before != Playing && mode ==
+    /// Playing` rule in `apply` then drops the rest of the batch, so a movement key queued behind
+    /// the closing `Confirm` cannot leak into gameplay the same iteration.
+    fn apply_dialogue(&mut self, action: Action) {
+        match action {
+            Action::Confirm | Action::Cancel => {
+                let events = update(&mut self.state, &[action], self.tick_counter);
+                self.dirty |= !events.is_empty();
+                if events
+                    .iter()
+                    .any(|e| matches!(e, GameEvent::DialogueEnded { .. }))
+                {
+                    self.set_mode(Mode::Playing);
+                }
+            }
+            Action::Quit => self.set_mode(Mode::ConfirmQuit),
+            _ => {}
         }
     }
 
@@ -244,8 +295,17 @@ impl App {
 
         for event in &events {
             match event {
-                GameEvent::RoomEntered { .. } => self.checkpoint = self.state.clone(),
+                GameEvent::RoomEntered { room, .. } => {
+                    self.checkpoint = self.state.clone();
+                    // The §7 teaching prompt: a room's authored hint replaces the message row on
+                    // entry, e.g. the start room's movement/interaction prompt.
+                    if let Some(hint) = &self.state.world.room(*room).hint {
+                        self.message = hint.clone();
+                    }
+                }
                 GameEvent::HeroDied => self.set_mode(Mode::GameOver),
+                GameEvent::DialogueStarted { .. } => self.set_mode(Mode::Dialogue),
+                GameEvent::Message(text) => self.message = text.clone(),
                 _ => {}
             }
         }

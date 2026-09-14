@@ -3,11 +3,28 @@
 use std::rc::Rc;
 
 use mosslight::game::tuning::HERO_STEP_TICKS;
-use mosslight::game::{update, Action, Facing, GameEvent, GameState, Pos};
+use mosslight::game::{
+    update, Action, AiState, Enemy, EnemyId, EnemyKind, Facing, GameEvent, GameState, Pos,
+};
 
 fn fresh() -> GameState {
     let world = Rc::new(mosslight::content::load().expect("embedded world validates"));
     GameState::new(1, world)
+}
+
+/// A `GameState` dropped directly into `room_id` at `pos` — for the solid-object tests below,
+/// which need specific authored objects (a chest, an NPC, a torch, a plate) rather than
+/// `room.lighthouse`'s empty floor.
+fn state_in(room_id: &str, pos: Pos) -> GameState {
+    let world = Rc::new(mosslight::content::load().expect("embedded world validates"));
+    let room = world
+        .room_idx(room_id)
+        .unwrap_or_else(|| panic!("{room_id} exists in the embedded world"));
+    let mut state = GameState::new(1, world);
+    state.room = room;
+    state.hero.pos = pos;
+    state.spawn_enemies();
+    state
 }
 
 #[test]
@@ -95,6 +112,89 @@ fn one_step_per_cooldown() {
     // Cooldown elapsed.
     update(&mut state, &[Action::MoveSouth], HERO_STEP_TICKS);
     assert_ne!(state.hero.pos, after_first);
+}
+
+#[test]
+fn hero_cannot_step_onto_a_chest_but_can_step_onto_a_plate() {
+    // chest.forest_sword sits at (5, 5) in room.crossroads: solid, blocks the step.
+    let mut state = state_in("room.crossroads", Pos { x: 5, y: 6 });
+    let events = update(&mut state, &[Action::MoveNorth], 0);
+    assert_eq!(state.hero.pos, Pos { x: 5, y: 6 });
+    assert!(matches!(events[0], GameEvent::MoveBlocked { .. }));
+
+    // plate.mill1 sits at (5, 9) in room.old_mill: not solid, steps onto it normally.
+    let mut state = state_in("room.old_mill", Pos { x: 5, y: 10 });
+    update(&mut state, &[Action::MoveNorth], 0);
+    assert_eq!(state.hero.pos, Pos { x: 5, y: 9 });
+}
+
+#[test]
+fn hero_cannot_step_onto_an_npc_or_a_torch() {
+    // npc.keeper sits at (5, 5) in room.lighthouse.
+    let mut state = state_in("room.lighthouse", Pos { x: 5, y: 6 });
+    update(&mut state, &[Action::MoveNorth], 0);
+    assert_eq!(state.hero.pos, Pos { x: 5, y: 6 });
+
+    // torch.shore sits at (18, 1) in room.south_shore.
+    let mut state = state_in("room.south_shore", Pos { x: 17, y: 1 });
+    update(&mut state, &[Action::MoveEast], 0);
+    assert_eq!(state.hero.pos, Pos { x: 17, y: 1 });
+}
+
+#[test]
+fn enemy_cannot_step_onto_a_solid_object_tile() {
+    // chest.forest_sword sits at (5, 5) in room.crossroads; a slime chasing a hero on the far
+    // side of it would cross that exact tile on the shortest path if it were walkable.
+    let mut state = state_in("room.crossroads", Pos { x: 7, y: 5 });
+    state.enemies = vec![Enemy {
+        id: EnemyId(0),
+        kind: EnemyKind::Slime,
+        pos: Pos { x: 3, y: 5 },
+        facing: Facing::East,
+        hp: 2,
+        ai: AiState::SlimeChase { until: 10_000 },
+        patrol: Vec::new(),
+        move_ready_at: 0,
+        alive: true,
+    }];
+
+    for tick in 1..200 {
+        update(&mut state, &[], tick);
+        assert_ne!(
+            state.enemies[0].pos,
+            Pos { x: 5, y: 5 },
+            "a chasing enemy must never stand on the chest's tile (tick {tick})"
+        );
+    }
+}
+
+#[test]
+fn knockback_stops_before_a_solid_object() {
+    // chest.forest_sword sits at (5, 5); the hero stands one tile south of it with an enemy
+    // pressed against their own south side, so contact damage knocks the hero north, straight at
+    // the chest — one knockback tile (spec §6) is exactly far enough to reach it.
+    let mut state = state_in("room.crossroads", Pos { x: 5, y: 6 });
+    state.enemies = vec![Enemy {
+        id: EnemyId(0),
+        kind: EnemyKind::Slime,
+        pos: Pos { x: 5, y: 7 },
+        facing: Facing::North,
+        hp: 2,
+        ai: AiState::SlimeIdle { until: 10_000 },
+        patrol: Vec::new(),
+        move_ready_at: 10_000,
+        alive: true,
+    }];
+
+    let events = update(&mut state, &[], 1);
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, GameEvent::HeroDamaged { .. })));
+    assert_eq!(
+        state.hero.pos,
+        Pos { x: 5, y: 6 },
+        "knockback must stop before the chest's tile, not land on or past it"
+    );
 }
 
 #[test]

@@ -121,10 +121,14 @@ fn direction_toward(from: Pos, toward: Pos, fallback: Facing) -> Facing {
 }
 
 /// Walks up to `tiles` steps one tile at a time from `from` in `facing`, stopping *before* the
-/// first tile that is out of bounds, non-walkable, a hazard, occupied, or a `Tile::Door` — a
-/// knockback landing on a door would teleport the entity into the next room mid-hit.
+/// first tile that is out of bounds, non-walkable (a revealed `Hidden` tile counts as walkable),
+/// a `Tile::Door` (a knockback landing on a door would teleport the entity into the next room
+/// mid-hit), a solid authored object, or occupied by an enemy. No hazard tile is ever walkable, so
+/// excluding hazards needs no separate term — `is_walkable()`/`is_hazard()` are disjoint by
+/// construction.
 pub fn knockback(
     room: &Room,
+    revealed: &HashSet<Pos>,
     occupied: &HashSet<Pos>,
     from: Pos,
     facing: Facing,
@@ -135,10 +139,10 @@ pub fn knockback(
         let Some(next) = step_target(pos, facing) else {
             break;
         };
-        let clear = room
-            .tile_at(next)
-            .is_some_and(|t| t.is_walkable() && !t.is_hazard() && t != Tile::Door)
-            && !occupied.contains(&next);
+        let tile_ok = room.tile_at(next).is_some_and(|t| {
+            (t.is_walkable() && t != Tile::Door) || (t == Tile::Hidden && revealed.contains(&next))
+        });
+        let clear = tile_ok && room.object_at(next).is_none() && !occupied.contains(&next);
         if !clear {
             break;
         }
@@ -175,6 +179,7 @@ pub fn apply_contact_damage(state: &mut GameState, tick: Tick) -> Vec<GameEvent>
 
     let world = Rc::clone(&state.world);
     let room = world.room(state.room);
+    let revealed = state.revealed_set(state.room);
     let mut occupied: HashSet<Pos> = state
         .enemies
         .iter()
@@ -183,7 +188,14 @@ pub fn apply_contact_damage(state: &mut GameState, tick: Tick) -> Vec<GameEvent>
         .collect();
     occupied.remove(&hero_pos);
     let facing = direction_toward(source_pos, hero_pos, state.hero.facing);
-    state.hero.pos = knockback(room, &occupied, hero_pos, facing, KNOCKBACK_TILES);
+    state.hero.pos = knockback(
+        room,
+        &revealed,
+        &occupied,
+        hero_pos,
+        facing,
+        KNOCKBACK_TILES,
+    );
 
     events.push(GameEvent::HeroDamaged {
         remaining_halves: state.hero.health_halves,

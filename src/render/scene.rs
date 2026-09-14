@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Borders, Widget};
 use super::theme::Theme;
 use super::tiles::{glyph, Kind};
 use crate::game::tuning::GUARDIAN_DASH_TILES;
-use crate::game::{AiState, Facing, GameState, Pos, Room};
+use crate::game::{AiState, Facing, GameState, Pos, Room, Tile};
 
 pub const BLOCK_W: u16 = 50;
 pub const BLOCK_H: u16 = 21;
@@ -87,22 +87,71 @@ fn telegraph_lane(room: &Room, from: Pos, facing: Facing) -> Vec<Pos> {
     lane
 }
 
-/// Paints tiles, then the guardian danger cue, then enemies, then the sword, then the hero — so
-/// the hero is never hidden by an enemy and the sword is never hidden by a tile.
+/// Paints tiles (a revealed `Hidden` tile draws as floor), then plates, then chests/NPCs/torches,
+/// then the guardian danger cue, then enemies, then the sword, then the hero — so the hero is
+/// never hidden by an enemy and the sword is never hidden by a tile.
 pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Theme) {
     let block = Block::default().borders(Borders::ALL);
     Widget::render(block, layout.scene_area(), buf);
 
     let room = state.room();
+    let room_idx = state.room;
     for (ty, row) in room.tiles.iter().enumerate() {
         for (tx, tile) in row.iter().enumerate() {
-            let kind = Kind::from(*tile);
+            let pos = Pos {
+                x: tx as u8,
+                y: ty as u8,
+            };
+            let kind = if *tile == Tile::Hidden && state.is_revealed(room_idx, pos) {
+                Kind::Floor
+            } else {
+                Kind::from(*tile)
+            };
             let col = layout.tile_col(tx as u8);
             let row_y = layout.tile_row(ty as u8);
             set_tile(buf, col, row_y, kind, theme);
         }
     }
 
+    for (i, plate) in room.plates.iter().enumerate() {
+        let pressed = state.plates.pressed.contains(&(i as u16));
+        let kind = if pressed {
+            Kind::PlatePressed
+        } else {
+            Kind::Plate
+        };
+        let col = layout.tile_col(plate.at.x);
+        let row_y = layout.tile_row(plate.at.y);
+        set_tile(buf, col, row_y, kind, theme);
+    }
+
+    for (i, chest) in room.chests.iter().enumerate() {
+        let opened = state
+            .progress
+            .opened_chests
+            .iter()
+            .any(|o| o.room == room_idx && o.index == i as u16);
+        let kind = if opened { Kind::ChestOpen } else { Kind::Chest };
+        let col = layout.tile_col(chest.at.x);
+        let row_y = layout.tile_row(chest.at.y);
+        set_tile(buf, col, row_y, kind, theme);
+    }
+    for npc in &room.npcs {
+        let col = layout.tile_col(npc.at.x);
+        let row_y = layout.tile_row(npc.at.y);
+        set_tile(buf, col, row_y, Kind::Npc, theme);
+    }
+    for (i, torch) in room.torches.iter().enumerate() {
+        let lit = state
+            .progress
+            .lit_torches
+            .iter()
+            .any(|o| o.room == room_idx && o.index == i as u16);
+        let kind = if lit { Kind::TorchLit } else { Kind::Torch };
+        let col = layout.tile_col(torch.at.x);
+        let row_y = layout.tile_row(torch.at.y);
+        set_tile(buf, col, row_y, kind, theme);
+    }
     for enemy in state.enemies.iter().filter(|e| e.alive) {
         if let AiState::GuardianTelegraph { facing, .. } = enemy.ai {
             for lane_pos in telegraph_lane(room, enemy.pos, facing) {

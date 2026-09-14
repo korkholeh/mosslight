@@ -38,7 +38,10 @@ pub fn map_key(mode: Mode, key: KeyEvent) -> Option<Action> {
             | Mode::ConfirmQuit
             | Mode::Help
             | Mode::TooSmall
-            | Mode::GameOver => Some(Action::Confirm),
+            | Mode::GameOver
+            | Mode::Dialogue
+            | Mode::Map
+            | Mode::Inventory => Some(Action::Confirm),
             Mode::Playing => Some(Action::Interact),
         },
         _ => None,

@@ -2,7 +2,7 @@
 World(
     version: 1,
     start: (room: "room.a", spawn: "spawn.a.start"),
-    route: (ember_required: true, home: "room.a"),
+    route: (ember_required: true, home: "room.a", goal: "room.a"),
     rooms: [
         (
             id: "room.a",

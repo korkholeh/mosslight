@@ -8,11 +8,14 @@ pub mod world;
 
 pub mod ai;
 pub mod combat;
+pub mod puzzles;
 
-pub use entities::{AiState, Enemy, EnemyId, Facing, Hero, Pos, Swing};
+pub use entities::{AiState, DialogueState, Enemy, EnemyId, Facing, Hero, ObjectRef, Pos, Swing};
+pub use puzzles::PlateState;
 pub use rng::Rng;
 pub use state::{state_hash, update, Action, GameEvent, GameState, Progress, Tick};
 pub use world::{
-    Chest, Door, EnemyKind, EnemySpawn, LockKind, Npc, Puzzle, PuzzleKind, Reward, Room, RoomIdx,
-    RoomKind, Route, Spawn, StartPoint, Tile, TileGrid, World,
+    Chest, DialogueNode, Door, EnemyKind, EnemySpawn, LockKind, Npc, ObjectKind, Plate, Puzzle,
+    PuzzleKind, Reward, Room, RoomIdx, RoomKind, Route, Spawn, StartPoint, Tile, TileGrid, Torch,
+    World,
 };

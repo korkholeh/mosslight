@@ -17,9 +17,21 @@ use super::tuning::{
     GUARDIAN_SIGHT, GUARDIAN_TELEGRAPH_TICKS, ROOM_H, ROOM_W, SLIME_AGGRO_RADIUS,
     SLIME_CHASE_TICKS, SLIME_IDLE_TICKS, SLIME_STEP_TICKS,
 };
-use super::world::{EnemyKind, Room};
+use super::world::{EnemyKind, Room, Tile};
 
 const DIRS: [Facing; 4] = [Facing::North, Facing::East, Facing::South, Facing::West];
+
+/// The room-local walkability check every enemy pathfinder uses: `GameState::walkable`'s rule
+/// (ordinarily walkable, or a `Hidden` tile revealed this room, and free of a solid object),
+/// expressed against an owned `room`/`revealed` pair instead of a live `&GameState` borrow — see
+/// `GameState::revealed_set`.
+fn tile_walkable(room: &Room, revealed: &HashSet<Pos>, pos: Pos) -> bool {
+    let Some(tile) = room.tile_at(pos) else {
+        return false;
+    };
+    let tile_ok = tile.is_walkable() || (tile == Tile::Hidden && revealed.contains(&pos));
+    tile_ok && room.object_at(pos).is_none()
+}
 
 /// The tile-occupancy every enemy sees this tick: the hero's tile plus every other live enemy's
 /// position (never `exclude`'s own), reflecting moves already applied earlier this same tick.
@@ -39,7 +51,13 @@ pub fn occupied_positions(state: &GameState, exclude: super::entities::EnemyId) 
 /// `to`, or `None` if `from == to` or no path exists. `to` itself is exempt from the occupancy
 /// check (it is typically the hero's own tile) so a path can always be found up to the target;
 /// callers are responsible for not actually stepping onto an occupied tile (see `try_move`).
-pub fn path_step(room: &Room, occupied: &HashSet<Pos>, from: Pos, to: Pos) -> Option<Facing> {
+pub fn path_step(
+    room: &Room,
+    revealed: &HashSet<Pos>,
+    occupied: &HashSet<Pos>,
+    from: Pos,
+    to: Pos,
+) -> Option<Facing> {
     if from == to {
         return None;
     }
@@ -72,9 +90,7 @@ pub fn path_step(room: &Room, occupied: &HashSet<Pos>, from: Pos, to: Pos) -> Op
                 continue;
             }
             let is_goal = next == to;
-            let walkable = room
-                .tile_at(next)
-                .is_some_and(|t| t.is_walkable() && !t.is_hazard());
+            let walkable = tile_walkable(room, revealed, next);
             if !is_goal && (!walkable || occupied.contains(&next)) {
                 continue;
             }
@@ -104,7 +120,13 @@ pub fn path_step(room: &Room, occupied: &HashSet<Pos>, from: Pos, to: Pos) -> Op
 
 /// Total fallback when `path_step` finds nothing: try the axis with the larger delta first, then
 /// the other, then no move. Never enters `to`'s tile.
-pub fn local_step(room: &Room, occupied: &HashSet<Pos>, from: Pos, to: Pos) -> Option<Facing> {
+pub fn local_step(
+    room: &Room,
+    revealed: &HashSet<Pos>,
+    occupied: &HashSet<Pos>,
+    from: Pos,
+    to: Pos,
+) -> Option<Facing> {
     let dx = to.x as i32 - from.x as i32;
     let dy = to.y as i32 - from.y as i32;
     if dx == 0 && dy == 0 {
@@ -130,9 +152,7 @@ pub fn local_step(room: &Room, occupied: &HashSet<Pos>, from: Pos, to: Pos) -> O
         if (next.y as usize) >= ROOM_H || (next.x as usize) >= ROOM_W {
             continue;
         }
-        let walkable = room
-            .tile_at(next)
-            .is_some_and(|t| t.is_walkable() && !t.is_hazard());
+        let walkable = tile_walkable(room, revealed, next);
         if walkable && (next == to || !occupied.contains(&next)) {
             return Some(dir);
         }
@@ -176,6 +196,7 @@ fn random_facing(rng: &mut Rng) -> Facing {
 fn try_move(
     enemy: &mut Enemy,
     room: &Room,
+    revealed: &HashSet<Pos>,
     occupied: &HashSet<Pos>,
     facing: Facing,
     events: &mut Vec<GameEvent>,
@@ -184,9 +205,7 @@ fn try_move(
     let Some(target) = step_target(enemy.pos, facing) else {
         return false;
     };
-    let walkable = room
-        .tile_at(target)
-        .is_some_and(|t| t.is_walkable() && !t.is_hazard());
+    let walkable = tile_walkable(room, revealed, target);
     if !walkable || occupied.contains(&target) {
         return false;
     }
@@ -200,9 +219,11 @@ fn try_move(
     true
 }
 
+#[allow(clippy::too_many_arguments)]
 fn step_slime(
     enemy: &mut Enemy,
     room: &Room,
+    revealed: &HashSet<Pos>,
     hero_pos: Pos,
     occupied: &HashSet<Pos>,
     rng: &mut Rng,
@@ -213,7 +234,7 @@ fn step_slime(
         AiState::SlimeIdle { until } => {
             if tick >= enemy.move_ready_at {
                 let dir = random_facing(rng);
-                try_move(enemy, room, occupied, dir, events);
+                try_move(enemy, room, revealed, occupied, dir, events);
                 enemy.move_ready_at = tick + SLIME_STEP_TICKS;
             }
             if tick >= until {
@@ -231,7 +252,7 @@ fn step_slime(
         }
         AiState::SlimeWander { until, facing } => {
             if tick >= enemy.move_ready_at {
-                if !try_move(enemy, room, occupied, facing, events) {
+                if !try_move(enemy, room, revealed, occupied, facing, events) {
                     // Redraw only when blocked, so the committed direction is what makes this
                     // phase behaviourally distinct from SlimeIdle's per-step redraw.
                     let redrawn = random_facing(rng);
@@ -256,10 +277,10 @@ fn step_slime(
         }
         AiState::SlimeChase { until } => {
             if tick >= enemy.move_ready_at {
-                if let Some(dir) = path_step(room, occupied, enemy.pos, hero_pos)
-                    .or_else(|| local_step(room, occupied, enemy.pos, hero_pos))
+                if let Some(dir) = path_step(room, revealed, occupied, enemy.pos, hero_pos)
+                    .or_else(|| local_step(room, revealed, occupied, enemy.pos, hero_pos))
                 {
-                    try_move(enemy, room, occupied, dir, events);
+                    try_move(enemy, room, revealed, occupied, dir, events);
                 }
                 enemy.move_ready_at = tick + SLIME_STEP_TICKS;
             }
@@ -273,9 +294,11 @@ fn step_slime(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn step_bat(
     enemy: &mut Enemy,
     room: &Room,
+    revealed: &HashSet<Pos>,
     hero_pos: Pos,
     occupied: &HashSet<Pos>,
     rng: &mut Rng,
@@ -285,7 +308,7 @@ fn step_bat(
     match enemy.ai {
         AiState::BatDart { steps_left, facing } => {
             if tick >= enemy.move_ready_at {
-                let moved = try_move(enemy, room, occupied, facing, events);
+                let moved = try_move(enemy, room, revealed, occupied, facing, events);
                 enemy.move_ready_at = tick + BAT_STEP_TICKS;
                 let remaining = steps_left.saturating_sub(1);
                 enemy.ai = if !moved || remaining == 0 {
@@ -304,8 +327,8 @@ fn step_bat(
             if tick >= until {
                 let in_range = manhattan(enemy.pos, hero_pos) <= BAT_AGGRO_RADIUS;
                 let facing = if in_range {
-                    path_step(room, occupied, enemy.pos, hero_pos)
-                        .or_else(|| local_step(room, occupied, enemy.pos, hero_pos))
+                    path_step(room, revealed, occupied, enemy.pos, hero_pos)
+                        .or_else(|| local_step(room, revealed, occupied, enemy.pos, hero_pos))
                         .unwrap_or_else(|| random_facing(rng))
                 } else {
                     random_facing(rng)
@@ -320,9 +343,11 @@ fn step_bat(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn step_guardian(
     enemy: &mut Enemy,
     room: &Room,
+    revealed: &HashSet<Pos>,
     hero_pos: Pos,
     occupied: &HashSet<Pos>,
     _rng: &mut Rng,
@@ -334,7 +359,7 @@ fn step_guardian(
             if tick >= enemy.move_ready_at {
                 if enemy.patrol.is_empty() {
                     let dir = enemy.facing;
-                    if !try_move(enemy, room, occupied, dir, events) {
+                    if !try_move(enemy, room, revealed, occupied, dir, events) {
                         enemy.facing = opposite(dir);
                     }
                 } else {
@@ -345,10 +370,10 @@ fn step_guardian(
                             waypoint: next_wp,
                             until,
                         };
-                    } else if let Some(dir) = path_step(room, occupied, enemy.pos, target)
-                        .or_else(|| local_step(room, occupied, enemy.pos, target))
+                    } else if let Some(dir) = path_step(room, revealed, occupied, enemy.pos, target)
+                        .or_else(|| local_step(room, revealed, occupied, enemy.pos, target))
                     {
-                        try_move(enemy, room, occupied, dir, events);
+                        try_move(enemy, room, revealed, occupied, dir, events);
                     }
                 }
                 enemy.move_ready_at = tick + GUARDIAN_PATROL_STEP_TICKS;
@@ -374,7 +399,7 @@ fn step_guardian(
         }
         AiState::GuardianDash { steps_left, facing } => {
             if tick >= enemy.move_ready_at {
-                let moved = try_move(enemy, room, occupied, facing, events);
+                let moved = try_move(enemy, room, revealed, occupied, facing, events);
                 enemy.move_ready_at = tick + GUARDIAN_DASH_STEP_TICKS;
                 let remaining = steps_left.saturating_sub(1);
                 enemy.ai = if !moved || remaining == 0 {
@@ -409,6 +434,7 @@ pub fn step(state: &mut GameState, tick: Tick) -> Vec<GameEvent> {
     let hero_pos = state.hero.pos;
     let world = Rc::clone(&state.world);
     let room = world.room(state.room);
+    let revealed = state.revealed_set(state.room);
 
     let count = state.enemies.len();
     for i in 0..count {
@@ -422,13 +448,36 @@ pub fn step(state: &mut GameState, tick: Tick) -> Vec<GameEvent> {
         let GameState { enemies, rng, .. } = &mut *state;
         let enemy = &mut enemies[i];
         match enemy.kind {
-            EnemyKind::Slime => {
-                step_slime(enemy, room, hero_pos, &occupied, rng, tick, &mut events)
-            }
-            EnemyKind::Bat => step_bat(enemy, room, hero_pos, &occupied, rng, tick, &mut events),
-            EnemyKind::Guardian => {
-                step_guardian(enemy, room, hero_pos, &occupied, rng, tick, &mut events)
-            }
+            EnemyKind::Slime => step_slime(
+                enemy,
+                room,
+                &revealed,
+                hero_pos,
+                &occupied,
+                rng,
+                tick,
+                &mut events,
+            ),
+            EnemyKind::Bat => step_bat(
+                enemy,
+                room,
+                &revealed,
+                hero_pos,
+                &occupied,
+                rng,
+                tick,
+                &mut events,
+            ),
+            EnemyKind::Guardian => step_guardian(
+                enemy,
+                room,
+                &revealed,
+                hero_pos,
+                &occupied,
+                rng,
+                tick,
+                &mut events,
+            ),
         }
         if std::mem::discriminant(&state.enemies[i].ai) != before {
             events.push(GameEvent::EnemyAiChanged { id });

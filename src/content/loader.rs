@@ -158,7 +158,7 @@ mod tests {
             "World(\n\
              \x20   version: 1,\n\
              \x20   start: (room: \"room.a\", spawn: \"spawn.a.start\"),\n\
-             \x20   route: (ember_required: false, home: \"room.a\"),\n\
+             \x20   route: (ember_required: false, home: \"room.a\", goal: \"room.a\"),\n\
              \x20   rooms: [\n\
              \x20       (\n\
              \x20           id: \"room.a\",\n\

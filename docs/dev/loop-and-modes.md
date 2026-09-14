@@ -57,6 +57,10 @@ MainMenu --Quit--> ConfirmQuit --Cancel--> MainMenu
 Playing  --Cancel--> Paused --Cancel--> Playing
 Playing  --Help--> Help --Cancel/Help--> Playing
 Playing  --Quit--> ConfirmQuit --Cancel--> Playing
+Playing  --ToggleMap--> Map --ToggleMap/Cancel--> Playing
+Playing  --ToggleInventory--> Inventory --ToggleInventory/Cancel--> Playing
+Playing  --Interact on a talkative NPC (DialogueStarted)--> Dialogue
+Dialogue --Confirm (advances a node; past the last node, or Cancel)--> Playing (DialogueEnded)
 Playing  --health reaches 0 (HeroDied)--> GameOver
 GameOver --Confirm (retry)--> Playing (state restored from the last room-entry checkpoint)
 GameOver --Cancel--> MainMenu
@@ -77,6 +81,18 @@ other mode leaves the tick counter untouched. `App::apply` returns the actions m
 iteration's simulation step — mode transitions and menu navigation are resolved as a side effect
 of the same call, in the order the actions arrived, so a mode change partway through a batch
 changes how the rest of that batch is interpreted.
+
+`Map` and `Inventory` are read-only projections of `app.state` (`render/overlays.rs`'s
+`draw_map`/`draw_inventory`); `ToggleMap`/`ToggleInventory` are intercepted directly in
+`apply_playing` rather than reaching the simulation, and closing either goes through the same
+`apply()` overlay-close rule as `Paused`/`Help`. `Dialogue` is different: it is simulation state
+(`GameState::dialogue`, set by `Interact`'s `DialogueStarted` event), not just an app-level mode,
+because a flag a dialogue node sets (`Progress.flags`) has to land inside the pure `update()`
+pipeline. `App::apply_dialogue` routes `Confirm`/`Cancel` straight into `update()` at the
+*current* tick (not an incremented one), so a dialogue responds within the same iteration and the
+tick counter provably does not advance while it is open — `update()`'s own dialogue branch (see
+`docs/dev/content.md` or `game::state::update`) is what actually suspends the six-step per-tick
+pipeline; `App` just mirrors `DialogueStarted`/`DialogueEnded` into `Mode::Dialogue`/`Mode::Playing`.
 
 ## Layout budget (`src/render/scene.rs`)
 

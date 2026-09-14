@@ -15,7 +15,9 @@ fn fixture(name: &str) -> String {
 #[test]
 fn real_world_validates() {
     let world = content::load().expect("assets/world.ron must validate");
-    assert_eq!(world.rooms.len(), 9);
+    // 9 overworld rooms (see `real_world_has_nine_rooms_in_a_3x3_grid`) plus phase 4's dungeon
+    // vestibule, `room.sanctuary_gate` — the six-room dungeon itself is phase 5.
+    assert_eq!(world.rooms.len(), 10);
     // The acceptance criterion names `content::validate` itself, not just `load` (which already
     // implies it via `loader::parse` -> `collect_errors`) — exercise the named entry point too.
     assert!(content::validate(&world).is_ok());
@@ -220,5 +222,107 @@ fn three_defects_are_all_reported() {
             ContentError::SpawnNotWalkable { spawn, .. } if spawn == "spawn.a.fromB"
         )),
         "missing SpawnNotWalkable: {errors:?}"
+    );
+}
+
+#[test]
+fn object_on_a_wall_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_object_on_wall.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::ObjectNotOnFloor { what, .. } if what.contains("chest.key")
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn two_objects_on_one_tile_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_object_tile_conflict.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(
+            |e| matches!(e, ContentError::ObjectTileConflict { room, .. } if room == "room.a")
+        ),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn unknown_plate_id_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_unknown_plate.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::UnknownPlate { plate, .. } if plate == "plate.missing"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn reveal_position_not_hidden_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_reveal_not_hidden.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(
+            |e| matches!(e, ContentError::RevealNotHidden { what, .. } if what.contains("torch.a"))
+        ),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn flag_never_set_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_flag_never_set.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::FlagNeverSet { flag } if flag == "flag.ghost"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn secret_on_the_main_route_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_secret_on_main_route.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::SecretOnMainRoute { chest } if chest == "chest.secret"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn secret_holding_a_route_critical_reward_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_secret_route_critical.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::SecretRouteCritical { chest } if chest == "chest.secret"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn unknown_route_goal_is_rejected() {
+    let errors = content::parse(&fixture("broken_unknown_goal.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::UnknownRoom { referenced_by, room }
+                if referenced_by == "route.goal" && room == "room.nonexistent"
+        )),
+        "{errors:?}"
     );
 }

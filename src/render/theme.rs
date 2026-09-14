@@ -35,6 +35,13 @@ impl Theme {
                 Kind::Guardian => Color::Red,
                 Kind::Sword => Color::White,
                 Kind::Telegraph => Color::LightRed,
+                Kind::Npc => Color::LightCyan,
+                Kind::Chest => Color::LightYellow,
+                Kind::ChestOpen => Color::DarkGray,
+                Kind::Torch => Color::DarkGray,
+                Kind::TorchLit => Color::LightRed,
+                Kind::Plate => Color::Gray,
+                Kind::PlatePressed => Color::LightGreen,
             },
         }
     }
@@ -44,7 +51,7 @@ impl Theme {
 mod tests {
     use super::*;
 
-    const ALL_KINDS: [Kind; 13] = [
+    const ALL_KINDS: [Kind; 20] = [
         Kind::Hero,
         Kind::Wall,
         Kind::Floor,
@@ -58,19 +65,33 @@ mod tests {
         Kind::Guardian,
         Kind::Sword,
         Kind::Telegraph,
+        Kind::Npc,
+        Kind::Chest,
+        Kind::ChestOpen,
+        Kind::Torch,
+        Kind::TorchLit,
+        Kind::Plate,
+        Kind::PlatePressed,
     ];
 
     #[test]
-    fn every_theme_uses_the_identical_glyph_table() {
-        // Themes only ever return colours; the glyph table in `tiles.rs` has no theme parameter
-        // at all, so this is a structural property, not a runtime check. This test documents it
-        // by confirming every kind still resolves to a glyph under every theme's colour mapping.
-        for theme_name in [ThemeName::Gameboy, ThemeName::Ansi, ThemeName::Mono] {
-            let theme = Theme::new(theme_name);
-            for kind in ALL_KINDS {
-                let _ = theme.color_for(kind);
-                let _ = super::super::tiles::glyph(kind);
-            }
+    fn mono_theme_only_uses_white_or_black_family_colors() {
+        // The real, checkable claim this module makes (glyph identity across themes is instead
+        // structural: `tiles::glyph` takes no theme parameter at all, so there is no runtime path
+        // that could vary it — see `tiles::every_glyph_is_distinct` for the distinctness half of
+        // RISKS #10). A prior version of this test only called `color_for`/`glyph` and asserted
+        // nothing (round-2 review, major); this checks the doc comment's promise that `Mono`
+        // stays legible on a monochrome terminal.
+        let theme = Theme::new(ThemeName::Mono);
+        for kind in ALL_KINDS {
+            let color = theme.color_for(kind);
+            assert!(
+                matches!(
+                    color,
+                    Color::White | Color::Black | Color::Gray | Color::DarkGray
+                ),
+                "{kind:?} resolved to {color:?} under Mono, breaking monochrome legibility"
+            );
         }
     }
 }

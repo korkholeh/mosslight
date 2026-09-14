@@ -7,7 +7,7 @@ use crate::game::entities::Pos;
 use crate::game::tuning::{ROOM_H, ROOM_W};
 
 use super::error::{ContentError, IdKind};
-use super::schema::{LockKind, Reward, Room, RoomIdx, Tile, World};
+use super::schema::{LockKind, PuzzleKind, Reward, Room, RoomIdx, Tile, World};
 
 /// Maximum number of `SmallKey`-locked doors the `(unlocked, items)` search's `u64` bitmask can
 /// track — see [`ContentError::TooManySmallKeyDoors`].
@@ -33,6 +33,11 @@ pub(crate) fn collect_errors(world: &World, check_reachability: bool) -> Vec<Con
     errors.extend(check_door_geometry(world));
     errors.extend(check_reciprocity(world));
     errors.extend(check_enemy_spawns(world));
+    errors.extend(check_object_placement(world));
+    errors.extend(check_npc_conditions(world));
+    errors.extend(check_puzzles(world));
+    errors.extend(check_torches(world));
+    errors.extend(check_secrets(world));
     if check_reachability {
         errors.extend(check_reachability_and_route(world));
     }
@@ -51,6 +56,8 @@ fn check_unique_ids(world: &World) -> Vec<ContentError> {
     let mut seen_chests = HashSet::new();
     let mut seen_npcs = HashSet::new();
     let mut seen_puzzles = HashSet::new();
+    let mut seen_torches = HashSet::new();
+    let mut seen_plates = HashSet::new();
     let mut seen_map_index: HashSet<(u8, u8)> = HashSet::new();
 
     for room in &world.rooms {
@@ -105,6 +112,22 @@ fn check_unique_ids(world: &World) -> Vec<ContentError> {
                 });
             }
         }
+        for t in &room.torches {
+            if !seen_torches.insert(t.id.clone()) {
+                errors.push(ContentError::DuplicateId {
+                    kind: IdKind::Torch,
+                    id: t.id.clone(),
+                });
+            }
+        }
+        for p in &room.plates {
+            if !seen_plates.insert(p.id.clone()) {
+                errors.push(ContentError::DuplicateId {
+                    kind: IdKind::Plate,
+                    id: p.id.clone(),
+                });
+            }
+        }
     }
     errors
 }
@@ -132,6 +155,13 @@ fn check_transitions(world: &World) -> Vec<ContentError> {
         errors.push(ContentError::UnknownRoom {
             referenced_by: "route.home".to_string(),
             room: world.route.home.clone(),
+        });
+    }
+
+    if world.room_idx(&world.route.goal).is_none() {
+        errors.push(ContentError::UnknownRoom {
+            referenced_by: "route.goal".to_string(),
+            room: world.route.goal.clone(),
         });
     }
 
@@ -219,6 +249,280 @@ fn spawn_walkable(room: &Room, at: Pos) -> bool {
         && room
             .tile_at(at)
             .is_some_and(|t| t.is_walkable() && !t.is_hazard() && t != Tile::Door)
+}
+
+/// Every chest/npc/torch/plate `at` must be in bounds, sit on plain `Tile::Floor`, and not
+/// coincide with a spawn, an enemy spawn or an enemy patrol waypoint (all of those are checked
+/// against Floor separately, so an object can share a *tile kind* with them but never the exact
+/// position) — and at most one object may occupy the same tile.
+fn check_object_placement(world: &World) -> Vec<ContentError> {
+    let mut errors = Vec::new();
+    for room in &world.rooms {
+        let spawn_positions: HashSet<Pos> = room.spawns.iter().map(|s| s.at).collect();
+        let mut enemy_positions: HashSet<Pos> = HashSet::new();
+        for enemy in &room.enemies {
+            enemy_positions.insert(enemy.at);
+            for &wp in enemy.patrol.iter().flatten() {
+                enemy_positions.insert(wp);
+            }
+        }
+
+        let mut objects: Vec<(String, Pos)> = Vec::new();
+        for c in &room.chests {
+            objects.push((format!("chest '{}'", c.id), c.at));
+        }
+        for n in &room.npcs {
+            objects.push((format!("npc '{}'", n.id), n.at));
+        }
+        for t in &room.torches {
+            objects.push((format!("torch '{}'", t.id), t.at));
+        }
+        for p in &room.plates {
+            objects.push((format!("plate '{}'", p.id), p.at));
+        }
+
+        for (what, at) in &objects {
+            if !in_bounds(*at) {
+                errors.push(ContentError::PositionOutOfBounds {
+                    room: room.id.clone(),
+                    what: what.clone(),
+                    at: *at,
+                });
+                continue;
+            }
+            let tile = room.tile_at(*at).expect("checked in bounds");
+            let usable = tile == Tile::Floor
+                && !spawn_positions.contains(at)
+                && !enemy_positions.contains(at);
+            if !usable {
+                errors.push(ContentError::ObjectNotOnFloor {
+                    room: room.id.clone(),
+                    what: what.clone(),
+                    at: *at,
+                });
+            }
+        }
+
+        let mut tile_counts: HashMap<Pos, usize> = HashMap::new();
+        for (_, at) in &objects {
+            *tile_counts.entry(*at).or_insert(0) += 1;
+        }
+        for (at, count) in tile_counts {
+            if count > 1 {
+                errors.push(ContentError::ObjectTileConflict {
+                    room: room.id.clone(),
+                    at,
+                });
+            }
+        }
+    }
+    errors
+}
+
+/// Every `Npc.condition` flag and every `LockKind::Flag` flag must be set by some
+/// `DialogueNode.sets_flag` somewhere in the world, or it can never be satisfied.
+fn check_npc_conditions(world: &World) -> Vec<ContentError> {
+    let mut set_flags: HashSet<&str> = HashSet::new();
+    for room in &world.rooms {
+        for npc in &room.npcs {
+            for node in &npc.dialogue {
+                if let Some(flag) = &node.sets_flag {
+                    set_flags.insert(flag.as_str());
+                }
+            }
+        }
+    }
+
+    let mut needed: HashSet<&str> = HashSet::new();
+    for room in &world.rooms {
+        for npc in &room.npcs {
+            if let Some(flag) = &npc.condition {
+                needed.insert(flag.as_str());
+            }
+        }
+        for door in &room.doors {
+            if let Some(LockKind::Flag(flag)) = &door.lock {
+                needed.insert(flag.as_str());
+            }
+        }
+    }
+
+    let mut missing: Vec<&str> = needed
+        .into_iter()
+        .filter(|f| !set_flags.contains(f))
+        .collect();
+    missing.sort_unstable();
+    missing
+        .into_iter()
+        .map(|flag| ContentError::FlagNeverSet {
+            flag: flag.to_string(),
+        })
+        .collect()
+}
+
+/// Every `Puzzle.plates` id must name a plate that exists in the same room, and every
+/// `Puzzle.reveals`/`Torch.reveals` position must be a `Tile::Hidden` tile in that room.
+fn check_puzzles(world: &World) -> Vec<ContentError> {
+    let mut errors = Vec::new();
+    for room in &world.rooms {
+        for puzzle in &room.puzzles {
+            for plate_id in &puzzle.plates {
+                if room.plate_index(plate_id).is_none() {
+                    errors.push(ContentError::UnknownPlate {
+                        room: room.id.clone(),
+                        puzzle: puzzle.id.clone(),
+                        plate: plate_id.clone(),
+                    });
+                }
+            }
+            for &at in &puzzle.reveals {
+                if room.tile_at(at) != Some(Tile::Hidden) {
+                    errors.push(ContentError::RevealNotHidden {
+                        room: room.id.clone(),
+                        what: format!("puzzle '{}'", puzzle.id),
+                        at,
+                    });
+                }
+            }
+        }
+    }
+    errors
+}
+
+fn check_torches(world: &World) -> Vec<ContentError> {
+    let mut errors = Vec::new();
+    for room in &world.rooms {
+        for torch in &room.torches {
+            for &at in &torch.reveals {
+                if room.tile_at(at) != Some(Tile::Hidden) {
+                    errors.push(ContentError::RevealNotHidden {
+                        room: room.id.clone(),
+                        what: format!("torch '{}'", torch.id),
+                        at,
+                    });
+                }
+            }
+        }
+    }
+    errors
+}
+
+/// A secret chest (`Chest.secret`) may not hold a route-critical reward, and its room may not lie
+/// on [`main_route_rooms`] — a secret must never gate progress.
+fn check_secrets(world: &World) -> Vec<ContentError> {
+    let mut errors = Vec::new();
+    let main_route = main_route_rooms(world);
+    for (i, room) in world.rooms.iter().enumerate() {
+        let room_idx = RoomIdx(i as u16);
+        for chest in &room.chests {
+            if !chest.secret {
+                continue;
+            }
+            if matches!(
+                chest.contains,
+                Reward::Sword | Reward::Lantern | Reward::Ember
+            ) {
+                errors.push(ContentError::SecretRouteCritical {
+                    chest: chest.id.clone(),
+                });
+            }
+            if main_route.contains(&room_idx) {
+                errors.push(ContentError::SecretOnMainRoute {
+                    chest: chest.id.clone(),
+                });
+            }
+        }
+    }
+    errors
+}
+
+/// The union, over every route-critical target (the rooms holding `Reward::{Sword,Lantern,Ember}`
+/// in a non-secret chest, plus `route.goal` and `route.home`), of every room lying on any
+/// shortest path from `start.room` to that target in the plain room-adjacency graph (every door
+/// traversable, ignoring locks). Union-of-all-shortest-paths, so there is no arbitrary tie-break.
+pub fn main_route_rooms(world: &World) -> std::collections::BTreeSet<RoomIdx> {
+    let mut on_route = std::collections::BTreeSet::new();
+    let Some(start) = world.start_room() else {
+        return on_route;
+    };
+    on_route.insert(start);
+
+    let mut targets: std::collections::BTreeSet<RoomIdx> = std::collections::BTreeSet::new();
+    for (i, room) in world.rooms.iter().enumerate() {
+        let room_idx = RoomIdx(i as u16);
+        let has_critical = room.chests.iter().any(|c| {
+            !c.secret && matches!(c.contains, Reward::Sword | Reward::Lantern | Reward::Ember)
+        });
+        if has_critical {
+            targets.insert(room_idx);
+        }
+    }
+    if let Some(goal) = world.room_idx(&world.route.goal) {
+        targets.insert(goal);
+    }
+    if let Some(home) = world.room_idx(&world.route.home) {
+        targets.insert(home);
+    }
+
+    for target in targets {
+        on_route.extend(shortest_path_rooms(world, start, target));
+    }
+    on_route
+}
+
+/// BFS over the plain room-adjacency graph from `start`; returns the union of every room on any
+/// shortest path to `target` (empty if `target` is unreachable there).
+fn shortest_path_rooms(
+    world: &World,
+    start: RoomIdx,
+    target: RoomIdx,
+) -> std::collections::BTreeSet<RoomIdx> {
+    let mut dist: HashMap<RoomIdx, u32> = HashMap::new();
+    dist.insert(start, 0);
+    let mut queue = VecDeque::new();
+    queue.push_back(start);
+    while let Some(room_idx) = queue.pop_front() {
+        let d = dist[&room_idx];
+        for door in &world.room(room_idx).doors {
+            let Some(next) = world.room_idx(&door.to_room) else {
+                continue;
+            };
+            if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(next) {
+                e.insert(d + 1);
+                queue.push_back(next);
+            }
+        }
+    }
+
+    let mut on_path = std::collections::BTreeSet::new();
+    let Some(&target_dist) = dist.get(&target) else {
+        return on_path;
+    };
+    on_path.insert(target);
+
+    // A room r (dist[r] < target_dist) is on some shortest path to target iff some door from r
+    // leads to a room already known to be on the path, one step closer to target. Fixpoint
+    // outward from target rather than a single backward walk, so every shortest path is found,
+    // not just one arbitrary one.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (&room_idx, &d) in &dist {
+            if d >= target_dist || on_path.contains(&room_idx) {
+                continue;
+            }
+            let reaches_path = world.room(room_idx).doors.iter().any(|door| {
+                world.room_idx(&door.to_room).is_some_and(|next| {
+                    on_path.contains(&next) && dist.get(&next) == Some(&(d + 1))
+                })
+            });
+            if reaches_path {
+                on_path.insert(room_idx);
+                changed = true;
+            }
+        }
+    }
+    on_path
 }
 
 fn check_door_geometry(world: &World) -> Vec<ContentError> {
@@ -347,46 +651,31 @@ fn orthogonal_neighbours(pos: Pos) -> [Option<Pos>; 4] {
     ]
 }
 
-/// Partitions a room's walkable tiles into connected components (4-directional). The door graph
-/// alone (spec §7's reachability rule as originally implemented) proves nothing about whether the
-/// hero can actually walk from the tile they land on to a given door — two tiles in the same room
-/// can be mutually unreachable if a wall splits them (round-1 review, major). Component ids are
-/// arbitrary and only meaningful for equality within the same room.
-fn compute_components(room: &Room) -> HashMap<Pos, usize> {
-    let mut component = HashMap::new();
-    let mut next_id = 0usize;
-    for y in 0..ROOM_H {
-        for x in 0..ROOM_W {
-            let start = Pos {
-                x: x as u8,
-                y: y as u8,
-            };
-            if component.contains_key(&start) || !room.tile_at(start).is_some_and(Tile::is_walkable)
-            {
-                continue;
-            }
-            let mut queue = VecDeque::new();
-            queue.push_back(start);
-            component.insert(start, next_id);
-            while let Some(pos) = queue.pop_front() {
-                for neighbour in orthogonal_neighbours(pos).into_iter().flatten() {
-                    if room.tile_at(neighbour).is_some_and(Tile::is_walkable)
-                        && !component.contains_key(&neighbour)
-                    {
-                        component.insert(neighbour, next_id);
-                        queue.push_back(neighbour);
-                    }
-                }
-            }
-            next_id += 1;
-        }
-    }
-    component
+/// Every position an authored torch or `StepPlates` puzzle can reveal, and every flag a reachable
+/// NPC's dialogue can set, given which tiles are currently reached. Carried alongside `Items` in
+/// the search state so both fixpoints — items and reveals/flags — settle together.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct RevealState {
+    lit_torches: HashSet<(RoomIdx, u16)>,
+    solved_puzzles: HashSet<(RoomIdx, u16)>,
+    flags: HashSet<String>,
 }
 
-/// Item flags carried across the reachability search. Only `Lantern` and `Ember` are permanent,
-/// non-consumable pickups this phase; `LockKind::Flag` has no authored way to become true yet
-/// (phases 4-5 add the mechanism), so a `Flag`-locked door is always `LockNeverUnlockable`.
+impl RevealState {
+    fn is_revealed(&self, room: &Room, room_idx: RoomIdx, at: Pos) -> bool {
+        let by_torch = room.torches.iter().enumerate().any(|(i, t)| {
+            self.lit_torches.contains(&(room_idx, i as u16)) && t.reveals.contains(&at)
+        });
+        let by_puzzle = room.puzzles.iter().enumerate().any(|(i, p)| {
+            self.solved_puzzles.contains(&(room_idx, i as u16)) && p.reveals.contains(&at)
+        });
+        by_torch || by_puzzle
+    }
+}
+
+/// Item flags carried across the reachability search. `Lantern` and `Ember` are permanent,
+/// non-consumable pickups; `Flag` locks are handled by [`RevealState::flags`] instead, since a
+/// flag comes from a reachable NPC's dialogue rather than a chest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct Items {
     lantern: bool,
@@ -398,12 +687,13 @@ fn traversable(
     unlocked: u64,
     smallkey_bit: Option<u64>,
     items: Items,
+    flags: &HashSet<String>,
 ) -> bool {
     match &door.lock {
         None => true,
         Some(LockKind::SmallKey) => smallkey_bit.is_some_and(|bit| unlocked & bit != 0),
         Some(LockKind::Lantern) => items.lantern,
-        Some(LockKind::Flag(_)) => false,
+        Some(LockKind::Flag(flag)) => flags.contains(flag),
     }
 }
 
@@ -411,16 +701,15 @@ fn traversable(
 /// `smallkey_doors`), plus which permanent items have been picked up so far.
 type StateKey = (u64, bool, bool);
 
-/// A place the hero can actually be standing: a room plus which of that room's tile-connectivity
-/// components (see [`compute_components`]) they are in. Two doors in the same room are not
-/// necessarily mutually reachable, so the search branches on this instead of on `RoomIdx` alone.
-type Loc = (RoomIdx, usize);
+/// A place the hero can actually be standing: a room plus a tile position in it. Tile-level
+/// (rather than component-level) so "is X reachable" is directly "some orthogonal neighbour of
+/// X's tile is in the reached set", which is what makes an authored solid object's reachability
+/// askable at all.
+type Loc = (RoomIdx, Pos);
 
 struct ReachabilitySearch<'w> {
     world: &'w World,
     smallkey_doors: Vec<(RoomIdx, Pos)>,
-    /// Per room (indexed like `RoomIdx`), the tile -> connected-component-id map.
-    components: Vec<HashMap<Pos, usize>>,
 }
 
 impl<'w> ReachabilitySearch<'w> {
@@ -433,16 +722,10 @@ impl<'w> ReachabilitySearch<'w> {
                 }
             }
         }
-        let components = world.rooms.iter().map(compute_components).collect();
         ReachabilitySearch {
             world,
             smallkey_doors,
-            components,
         }
-    }
-
-    fn component_of(&self, room: RoomIdx, at: Pos) -> Option<usize> {
-        self.components[room.0 as usize].get(&at).copied()
     }
 
     fn bit_for(&self, room_idx: RoomIdx, at: Pos) -> Option<u64> {
@@ -452,62 +735,158 @@ impl<'w> ReachabilitySearch<'w> {
             .map(|i| 1u64 << i)
     }
 
-    /// Flood-fills the room/component graph from `start`, then repeatedly folds in any
-    /// newly-reachable permanent item until the item set stops growing (lantern, ember: at most
-    /// two iterations).
-    fn settle(&self, start: Loc, unlocked: u64, mut items: Items) -> (HashSet<Loc>, usize, Items) {
+    fn walkable_for_search(
+        &self,
+        room: &Room,
+        room_idx: RoomIdx,
+        at: Pos,
+        reveal: &RevealState,
+    ) -> bool {
+        let Some(tile) = room.tile_at(at) else {
+            return false;
+        };
+        let tile_ok =
+            tile.is_walkable() || (tile == Tile::Hidden && reveal.is_revealed(room, room_idx, at));
+        tile_ok && room.object_at(at).is_none()
+    }
+
+    /// Flood-fills the tile graph from `start` (orthogonal steps within a room, doors across
+    /// rooms), then repeatedly folds in newly-reachable items, lit torches, solved puzzles and
+    /// dialogue flags until nothing new is reached — each only ever grows, so this terminates.
+    fn settle(
+        &self,
+        start: Loc,
+        unlocked: u64,
+        mut items: Items,
+    ) -> (HashSet<Loc>, usize, Items, RevealState) {
+        let mut reveal = RevealState::default();
         loop {
-            let reachable = self.flood(start, unlocked, items);
-            let mut next = items;
+            let reached = self.flood(start, unlocked, items, &reveal);
+
+            let mut next_items = items;
             let mut keys_found = 0usize;
-            for &(room, comp) in &reachable {
-                for chest in &self.world.room(room).chests {
-                    if self.component_of(room, chest.at) != Some(comp) {
-                        continue; // chest sits in a different, currently-unreached part of the room
+            // A chest is solid, so its own tile is never in `reached` (see `walkable_for_search`)
+            // — it is opened by facing it from an orthogonal neighbour, exactly like a torch.
+            for (i, room) in self.world.rooms.iter().enumerate() {
+                let room_idx = RoomIdx(i as u16);
+                for chest in &room.chests {
+                    let reachable = orthogonal_neighbours(chest.at)
+                        .into_iter()
+                        .flatten()
+                        .any(|n| reached.contains(&(room_idx, n)));
+                    if !reachable {
+                        continue;
                     }
                     match chest.contains {
                         Reward::SmallKey => keys_found += 1,
-                        Reward::Lantern => next.lantern = true,
-                        Reward::Ember => next.ember = true,
+                        Reward::Lantern => next_items.lantern = true,
+                        Reward::Ember => next_items.ember = true,
                         _ => {}
                     }
                 }
             }
-            if next == items {
-                return (reachable, keys_found, items);
+
+            let mut next_reveal = reveal.clone();
+            if next_items.lantern {
+                for (i, room) in self.world.rooms.iter().enumerate() {
+                    let room_idx = RoomIdx(i as u16);
+                    for (ti, torch) in room.torches.iter().enumerate() {
+                        let key = (room_idx, ti as u16);
+                        if next_reveal.lit_torches.contains(&key) {
+                            continue;
+                        }
+                        if orthogonal_neighbours(torch.at)
+                            .into_iter()
+                            .flatten()
+                            .any(|n| reached.contains(&(room_idx, n)))
+                        {
+                            next_reveal.lit_torches.insert(key);
+                        }
+                    }
+                }
             }
-            items = next;
+            for (i, room) in self.world.rooms.iter().enumerate() {
+                let room_idx = RoomIdx(i as u16);
+                for npc in &room.npcs {
+                    let satisfied = npc
+                        .condition
+                        .as_ref()
+                        .is_none_or(|f| next_reveal.flags.contains(f));
+                    if !satisfied {
+                        continue;
+                    }
+                    let reachable = orthogonal_neighbours(npc.at)
+                        .into_iter()
+                        .flatten()
+                        .any(|n| reached.contains(&(room_idx, n)));
+                    if !reachable {
+                        continue;
+                    }
+                    for node in &npc.dialogue {
+                        if let Some(flag) = &node.sets_flag {
+                            next_reveal.flags.insert(flag.clone());
+                        }
+                    }
+                }
+            }
+            for (i, room) in self.world.rooms.iter().enumerate() {
+                let room_idx = RoomIdx(i as u16);
+                for (pi, puzzle) in room.puzzles.iter().enumerate() {
+                    if puzzle.kind != PuzzleKind::StepPlates || puzzle.plates.is_empty() {
+                        continue;
+                    }
+                    let key = (room_idx, pi as u16);
+                    if next_reveal.solved_puzzles.contains(&key) {
+                        continue;
+                    }
+                    let all_reached = puzzle.plates.iter().all(|id| {
+                        room.plate_index(id).is_some_and(|idx| {
+                            room.plates
+                                .get(idx as usize)
+                                .is_some_and(|p| reached.contains(&(room_idx, p.at)))
+                        })
+                    });
+                    if all_reached {
+                        next_reveal.solved_puzzles.insert(key);
+                    }
+                }
+            }
+
+            if next_items == items && next_reveal == reveal {
+                return (reached, keys_found, items, reveal);
+            }
+            items = next_items;
+            reveal = next_reveal;
         }
     }
 
-    /// A door only crosses to another room if the hero can actually walk to that door's tile from
-    /// the component they are currently in (round-1 review, major).
-    fn flood(&self, start: Loc, unlocked: u64, items: Items) -> HashSet<Loc> {
+    fn flood(&self, start: Loc, unlocked: u64, items: Items, reveal: &RevealState) -> HashSet<Loc> {
         let mut seen = HashSet::new();
         seen.insert(start);
         let mut queue = VecDeque::new();
         queue.push_back(start);
-        while let Some((room, comp)) = queue.pop_front() {
-            for door in &self.world.room(room).doors {
-                if self.component_of(room, door.at) != Some(comp) {
-                    continue;
-                }
-                let bit = self.bit_for(room, door.at);
-                if !traversable(door, unlocked, bit, items) {
-                    continue;
-                }
-                let Some(target_room) = self.world.room_idx(&door.to_room) else {
-                    continue;
-                };
-                let Some(landing) = self.world.spawn_pos(target_room, &door.to_spawn) else {
-                    continue;
-                };
-                let Some(target_comp) = self.component_of(target_room, landing) else {
-                    continue;
-                };
-                let loc = (target_room, target_comp);
-                if seen.insert(loc) {
+        while let Some((room_idx, pos)) = queue.pop_front() {
+            let room = self.world.room(room_idx);
+
+            for next in orthogonal_neighbours(pos).into_iter().flatten() {
+                let loc = (room_idx, next);
+                if !seen.contains(&loc) && self.walkable_for_search(room, room_idx, next, reveal) {
+                    seen.insert(loc);
                     queue.push_back(loc);
+                }
+            }
+
+            if let Some(door) = room.door_at(pos) {
+                let bit = self.bit_for(room_idx, pos);
+                if traversable(door, unlocked, bit, items, &reveal.flags) {
+                    if let Some(target_room) = self.world.room_idx(&door.to_room) {
+                        if let Some(landing) = self.world.spawn_pos(target_room, &door.to_spawn) {
+                            let loc = (target_room, landing);
+                            if seen.insert(loc) {
+                                queue.push_back(loc);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -515,8 +894,8 @@ impl<'w> ReachabilitySearch<'w> {
     }
 
     /// Runs the full branching BFS and returns every state actually reached, each already
-    /// settled (flood-filled and item-fixpointed).
-    fn run(&self, start: Loc) -> Vec<(HashSet<Loc>, Items, u64)> {
+    /// settled (flood-filled and item/reveal-fixpointed).
+    fn run(&self, start: Loc) -> Vec<(HashSet<Loc>, Items, u64, RevealState)> {
         let mut visited: HashSet<StateKey> = HashSet::new();
         let mut settled_states = Vec::new();
         let mut queue = VecDeque::new();
@@ -526,16 +905,14 @@ impl<'w> ReachabilitySearch<'w> {
         visited.insert((0, false, false));
 
         while let Some((unlocked, items)) = queue.pop_front() {
-            let (reachable, keys_found, settled_items) = self.settle(start, unlocked, items);
+            let (reachable, keys_found, settled_items, reveal) =
+                self.settle(start, unlocked, items);
             let keys_spent = unlocked.count_ones() as usize;
-            settled_states.push((reachable.clone(), settled_items, unlocked));
+            settled_states.push((reachable.clone(), settled_items, unlocked, reveal));
 
             if keys_found > keys_spent {
                 for &(room_idx, at) in &self.smallkey_doors {
-                    let Some(comp) = self.component_of(room_idx, at) else {
-                        continue;
-                    };
-                    if !reachable.contains(&(room_idx, comp)) {
+                    if !reachable.contains(&(room_idx, at)) {
                         continue;
                     }
                     let bit = self
@@ -573,20 +950,22 @@ fn check_reachability_and_route(world: &World) -> Vec<ContentError> {
     let Some(start_pos) = world.spawn_pos(start_room, &world.start.spawn) else {
         return errors; // UnknownSpawn for `start` already reported by check_transitions
     };
-    let Some(start_comp) = search.component_of(start_room, start_pos) else {
-        return errors; // start spawn not walkable — already reported as SpawnNotWalkable
-    };
+    if world.room(start_room).tile_at(start_pos).is_none() {
+        return errors; // out of bounds — already reported elsewhere
+    }
 
-    let states = search.run((start_room, start_comp));
+    let states = search.run((start_room, start_pos));
 
     let mut all_reachable: HashSet<Loc> = HashSet::new();
     let mut ever_unlocked: u64 = 0;
     let mut ever_lantern = false;
+    let mut ever_flags: HashSet<String> = HashSet::new();
     let mut ember_states: Vec<&HashSet<Loc>> = Vec::new();
-    for (reachable, items, unlocked) in &states {
+    for (reachable, items, unlocked, reveal) in &states {
         all_reachable.extend(reachable.iter().copied());
         ever_unlocked |= unlocked;
         ever_lantern |= items.lantern;
+        ever_flags.extend(reveal.flags.iter().cloned());
         if items.ember {
             ember_states.push(reachable);
         }
@@ -602,15 +981,11 @@ fn check_reachability_and_route(world: &World) -> Vec<ContentError> {
             });
             continue;
         }
-        // The room is reached in at least one tile-connectivity component; a door outside every
-        // reached component is exactly as unreachable as one that does not exist (round-1 review,
-        // major) — reported directly here rather than only surfacing as a downstream
-        // `RoomUnreachable` on some other room several doors later.
+        // The room is reached at some tile; a door whose own tile is never reached is exactly as
+        // unreachable as one that does not exist (round-1 review, major) — reported directly here
+        // rather than only surfacing as a downstream `RoomUnreachable` several doors later.
         for door in &room.doors {
-            let Some(door_comp) = search.component_of(room_idx, door.at) else {
-                continue; // not on a walkable tile — reported elsewhere as DoorTileMismatch
-            };
-            if !all_reachable.contains(&(room_idx, door_comp)) {
+            if !all_reachable.contains(&(room_idx, door.at)) {
                 errors.push(ContentError::DoorUnreachableInRoom {
                     room: room.id.clone(),
                     door: door.id.clone(),
@@ -660,10 +1035,15 @@ fn check_reachability_and_route(world: &World) -> Vec<ContentError> {
         }
     }
     for (door_id, lock) in flag_locks {
-        errors.push(ContentError::LockNeverUnlockable {
-            door: door_id.to_string(),
-            lock: lock.clone(),
-        });
+        let LockKind::Flag(flag) = lock else {
+            unreachable!("flag_locks only ever collects Flag locks");
+        };
+        if !ever_flags.contains(flag) {
+            errors.push(ContentError::LockNeverUnlockable {
+                door: door_id.to_string(),
+                lock: lock.clone(),
+            });
+        }
     }
 
     let ember_authored = world
@@ -753,7 +1133,7 @@ mod tests {
             r#"World(
     version: 1,
     start: (room: "room.a", spawn: "spawn.a.start"),
-    route: (ember_required: false, home: "room.a"),
+    route: (ember_required: false, home: "room.a", goal: "room.a"),
     rooms: [
 {a}
 {b}
@@ -901,6 +1281,9 @@ mod tests {
             npcs: Vec::new(),
             enemies: Vec::new(),
             puzzles: Vec::new(),
+            torches: Vec::new(),
+            plates: Vec::new(),
+            hint: None,
         };
 
         let world = World {
@@ -912,6 +1295,7 @@ mod tests {
             route: super::super::schema::Route {
                 ember_required: false,
                 home: "room.a".to_string(),
+                goal: "room.a".to_string(),
             },
             rooms: vec![room],
             room_index: HashMap::from([("room.a".to_string(), RoomIdx(0))]),

@@ -1,13 +1,13 @@
 # Autodev progress — Mosslight
 
 - **Status:** running
-- **Current:** phase 3/7 · step `commit`
+- **Current:** phase 4/7 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260913-2128` · **PR:** https://github.com/korkholeh/mosslight/pull/1
 - **Stack:** Rust 1.98.1 stable (pinned), single lib+bin Cargo package — ratatui 0.30.2 (crossterm 0.29 via its re-export), clap 4.6, serde 1, ron 0.12 (content), serde_json 1 (saves), signal-hook 0.4; no async runtime, no ECS, no runtime assets. · **Profile:** `rust-tui`
 - **Test command:** `cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --locked` · **E2E:** `-`
-- **Usage:** 5h 65% (reset 14.09 06:50) · 7d 44%
-- **Totals:** 23 sessions · 3.8 h agent time · ≈$70.94 API-equivalent
-- **Updated:** 2026-09-14 03:56:35
+- **Usage:** 5h 37% (reset 14.09 11:50) · 7d 47%
+- **Totals:** 30 sessions · 5.2 h agent time · ≈$112.81 API-equivalent
+- **Updated:** 2026-09-14 08:34:40
 
 ## Phases
 
@@ -15,8 +15,8 @@
 |---|---|---|---|---|---|
 | 1 | Skeleton, terminal lifecycle and the playable room | yes | ✅ done | a1fc17b | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
 | 2 | Content pipeline, validator and room transitions | no | ✅ done | 50b5925 |  |
-| 3 | Sword combat, three enemy kinds, death and determinism | yes | 🔨 in_progress |  |  |
-| 4 | Overworld: NPCs, chests, sword, lantern, secrets, map and inventory | yes | ⏳ pending |  |  |
+| 3 | Sword combat, three enemy kinds, death and determinism | yes | ✅ done | dad1978 | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
+| 4 | Overworld: NPCs, chests, sword, lantern, secrets, map and inventory | yes | 🔨 in_progress |  |  |
 | 5 | Dungeon, keys, puzzles, two-phase boss and the ending | yes | ⏳ pending |  |  |
 | 6 | Save slot, full CLI and presentation modes | yes | ⏳ pending |  |  |
 | 7 | Balance, measurement, documentation and verification report | yes | ⏳ pending |  |  |
@@ -73,6 +73,21 @@
 - `2026-09-14 03:54:25` **p03-review_fix2** — done (9m, $2.36): Applied all round-2 review findings for phase 3, none rejected: - MAJOR (fixed): contact knockback was inverted (`direction_away(hero_pos, source_pos, ..)` computed the direction toward the enemy, and since the enemy's tile is in `occupied`, `knockback()` was a no-op). Renamed the helper to `direct…
 - `2026-09-14 03:54:26` **p03-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 - `2026-09-14 03:56:35` **p03-docs** — done (2m, $0.79): Verified docs against the phase-3 diff and the final round-2-fixed code. CLAUDE.md, docs/dev/testing.md, docs/dev/loop-and-modes.md, docs/user/controls.md and CHANGELOG.md were already accurate (updated inline during implementation/review-fix steps per DECISIONS.md). Fixed the remaining gaps: docs/…
+- `2026-09-14 03:56:35` **p03-commit** — done: dad1978
+- `2026-09-14 03:56:38` **push** — done: korkholeh/mosslight@autodev/spec-20260913-2128 as korkholeh
+- `2026-09-14 03:56:41` **p03-push** — done: korkholeh/mosslight@autodev/spec-20260913-2128-p03-combat-enemies-determinism
+- `2026-09-14 03:56:44` **p03-pr** — draft: https://github.com/korkholeh/mosslight/pull/4
+- `2026-09-14 04:06:09` **p04-plan** — done (9m, $3.18): Explored the phase-1..3 code and wrote .autodev/phases/04-overworld-content/PLAN.md: 15 ordered tasks covering the content schema for dialogue/torches/plates/secrets, Progress and Hero equipment, reveal-aware walkability, chests, the dialogue modal inside update(), lantern and door locks, the StepP…
+- `2026-09-14 04:31:18` **usage** — paused: 5h usage 85% ≥ 85%; sleeping until ≈14.09 06:52
+- `2026-09-14 06:52:01` **usage** — resumed: 5h 0% (reset ?) · 7d 45%
+- `2026-09-14 07:25:37` **p04-implement** — done (58m, $29.43): Phase 4 (overworld content: NPCs, chests, sword, lantern, secrets, map, inventory) fully implemented — all 15 PLAN.md tasks done. Simulation (src/game/): ObjectRef, Hero equipment (has_sword/lantern/ember), Progress (opened_chests/lit_torches/solved_puzzles/flags), reveal-aware GameState::{is_revea…
+- `2026-09-14 07:25:40` **p04-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- `2026-09-14 07:27:01` **run** — stopped: --max-hours 8 reached (8.0 h in this run)
+- `2026-09-14 07:27:02` **push** — done: korkholeh/mosslight@autodev/spec-20260913-2128 as korkholeh
+- `2026-09-14 08:22:15` **p04-review2** — changes_requested (6m, $4.28): Phase 4 delivers the overworld content, the interaction/lantern/lock/puzzle mechanics, the three new modes and a substantially extended validator, and the full gate passes cleanly. The simulation stays pure, `GameState::walkable` is threaded consistently through hero movement, enemy AI and knockbac…
+- `2026-09-14 08:30:56` **p04-review_fix2** — done (6m, $2.38): Applied all REVIEW-r2.md findings for phase 4 (overworld content). Fixed, none rejected: MAJOR — criterion-2 reachability test replaced with a structural BFS from start_room, stopping expansion past the sword room; MAJOR — state_hash's mutation table extended with all 9 new hashed fields (hero equi…
+- `2026-09-14 08:30:59` **p04-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- `2026-09-14 08:34:40` **p04-docs** — done (3m, $1.43): Verified phase-4 T14 doc updates (docs/user/controls.md, docs/dev/content.md, docs/dev/loop-and-modes.md, CHANGELOG.md) against the actual diff, input.rs key map, and content/schema.rs field names — all already correct, no changes needed there. Fixed the remaining stale spots: - docs/dev/testing.md…
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

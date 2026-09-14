@@ -202,3 +202,98 @@ fn game_over_cancel_returns_to_the_main_menu() {
     app.apply(&[Action::Cancel]);
     assert_eq!(app.mode, Mode::MainMenu);
 }
+
+#[test]
+fn opening_the_map_freezes_the_tick() {
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]);
+    let sim_actions = app.apply(&[Action::ToggleMap]);
+    assert_eq!(app.mode, Mode::Map);
+    assert!(sim_actions.is_empty());
+
+    let before = app.state.tick;
+    app.tick(&[]);
+    assert_eq!(before, app.state.tick, "Map must freeze the simulation");
+}
+
+#[test]
+fn opening_the_inventory_freezes_the_tick() {
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]);
+    let sim_actions = app.apply(&[Action::ToggleInventory]);
+    assert_eq!(app.mode, Mode::Inventory);
+    assert!(sim_actions.is_empty());
+
+    let before = app.state.tick;
+    app.tick(&[]);
+    assert_eq!(
+        before, app.state.tick,
+        "Inventory must freeze the simulation"
+    );
+}
+
+#[test]
+fn closing_an_overlay_drops_a_queued_move_from_the_same_batch() {
+    for (open, close) in [
+        (Action::ToggleMap, Action::ToggleMap),
+        (Action::ToggleInventory, Action::ToggleInventory),
+        (Action::ToggleMap, Action::Cancel),
+    ] {
+        let mut app = App::new(&cfg(), world());
+        app.apply(&[Action::Confirm]);
+        app.apply(&[open]);
+        let pos_before = app.state.hero.pos;
+
+        let sim_actions = app.apply(&[close, Action::MoveNorth]);
+        assert_eq!(app.mode, Mode::Playing);
+        assert!(
+            sim_actions.is_empty(),
+            "a move queued behind {close:?} must not leak into gameplay this batch"
+        );
+        app.tick(&sim_actions);
+        assert_eq!(app.state.hero.pos, pos_before);
+    }
+}
+
+/// npc.keeper sits at (5, 5) in the start room (`assets/world.ron`); standing one tile south and
+/// facing north is enough to `Interact` with it without walking there.
+fn face_the_keeper(app: &mut App) {
+    app.state.hero.pos = Pos { x: 5, y: 6 };
+    app.state.hero.facing = mosslight::game::Facing::North;
+}
+
+#[test]
+fn interacting_with_an_npc_opens_dialogue_mode_and_freezes_the_tick() {
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]);
+    face_the_keeper(&mut app);
+
+    let sim_actions = app.apply(&[Action::Interact]);
+    app.tick(&sim_actions);
+    assert_eq!(app.mode, Mode::Dialogue);
+    assert!(!app.simulating());
+
+    let before = app.state.tick;
+    app.tick(&[]);
+    assert_eq!(
+        before, app.state.tick,
+        "Dialogue must freeze the simulation"
+    );
+}
+
+#[test]
+fn closing_a_dialogue_drops_a_queued_move_from_the_same_batch() {
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]);
+    face_the_keeper(&mut app);
+    let sim_actions = app.apply(&[Action::Interact]);
+    app.tick(&sim_actions);
+    assert_eq!(app.mode, Mode::Dialogue);
+
+    let pos_before = app.state.hero.pos;
+    let sim_actions = app.apply(&[Action::Cancel, Action::MoveNorth]);
+    assert_eq!(app.mode, Mode::Playing);
+    assert!(sim_actions.is_empty());
+    app.tick(&sim_actions);
+    assert_eq!(app.state.hero.pos, pos_before);
+}

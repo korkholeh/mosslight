@@ -38,6 +38,9 @@ fn action_sequence(seed: u64, len: usize) -> Vec<Action> {
 /// `state_hash()` after every tick.
 fn hash_trace(seed: u64, actions: &[Action]) -> Vec<u64> {
     let mut state = GameState::new(seed, world());
+    // Phase 4 gates `Attack` on `has_sword`; established directly so the action sequence's
+    // `Attack` picks actually exercise the swing pipeline instead of silently no-oping.
+    state.hero.has_sword = true;
     let mut hashes = Vec::with_capacity(actions.len());
     for (i, &action) in actions.iter().enumerate() {
         let tick = (i + 1) as u64;
@@ -71,6 +74,7 @@ fn enemy_position_and_hash_trace(seed: u64, actions: &[Action]) -> (Vec<Vec<Pos>
     let mut state = GameState::new(seed, world);
     state.room = room;
     state.hero.pos = spawn;
+    state.hero.has_sword = true;
     state.spawn_enemies();
 
     let mut positions = Vec::with_capacity(actions.len());
@@ -129,6 +133,8 @@ fn cfg(fps: Fps, seed: u64) -> Config {
 fn app_hash_trace(fps: Fps, seed: u64, actions: &[Action]) -> Vec<u64> {
     let mut app = App::new(&cfg(fps, seed), world());
     app.apply(&[Action::Confirm]); // -> Playing
+                                   // Phase 4 gates `Attack` on `has_sword`; established directly, see `hash_trace` above.
+    app.state.hero.has_sword = true;
 
     let mut pacer = Pacer::new(fps.as_u32());
     let mut pending = Vec::new();

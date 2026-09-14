@@ -15,6 +15,8 @@ pub enum IdKind {
     Chest,
     Npc,
     Puzzle,
+    Torch,
+    Plate,
 }
 
 impl fmt::Display for IdKind {
@@ -26,6 +28,8 @@ impl fmt::Display for IdKind {
             IdKind::Chest => "chest",
             IdKind::Npc => "npc",
             IdKind::Puzzle => "puzzle",
+            IdKind::Torch => "torch",
+            IdKind::Plate => "plate",
         };
         f.write_str(s)
     }
@@ -113,6 +117,34 @@ pub enum ContentError {
     EnemyPatrolInvalid {
         room: String,
         at: Pos,
+    },
+    ObjectNotOnFloor {
+        room: String,
+        what: String,
+        at: Pos,
+    },
+    ObjectTileConflict {
+        room: String,
+        at: Pos,
+    },
+    FlagNeverSet {
+        flag: String,
+    },
+    UnknownPlate {
+        room: String,
+        puzzle: String,
+        plate: String,
+    },
+    RevealNotHidden {
+        room: String,
+        what: String,
+        at: Pos,
+    },
+    SecretOnMainRoute {
+        chest: String,
+    },
+    SecretRouteCritical {
+        chest: String,
     },
 }
 
@@ -216,6 +248,38 @@ impl fmt::Display for ContentError {
                 "{room}: enemy patrol waypoint at ({}, {}) is not walkable",
                 at.x, at.y
             ),
+            ContentError::ObjectNotOnFloor { room, what, at } => write!(
+                f,
+                "{room}: {what} at ({}, {}) must sit on plain floor, clear of spawns and enemies",
+                at.x, at.y
+            ),
+            ContentError::ObjectTileConflict { room, at } => write!(
+                f,
+                "{room}: more than one object occupies ({}, {})",
+                at.x, at.y
+            ),
+            ContentError::FlagNeverSet { flag } => {
+                write!(f, "flag '{flag}' is never set by any dialogue node")
+            }
+            ContentError::UnknownPlate {
+                room,
+                puzzle,
+                plate,
+            } => write!(
+                f,
+                "{room}: puzzle '{puzzle}' references unknown plate '{plate}'"
+            ),
+            ContentError::RevealNotHidden { room, what, at } => write!(
+                f,
+                "{room}: {what} reveals ({}, {}), which is not a Hidden tile",
+                at.x, at.y
+            ),
+            ContentError::SecretOnMainRoute { chest } => {
+                write!(f, "secret chest '{chest}' sits in a room on the main route")
+            }
+            ContentError::SecretRouteCritical { chest } => {
+                write!(f, "secret chest '{chest}' contains a route-critical reward")
+            }
         }
     }
 }
@@ -313,6 +377,34 @@ mod tests {
                 room: "room.a".into(),
                 at: Pos { x: 3, y: 7 },
             },
+            ContentError::ObjectNotOnFloor {
+                room: "room.a".into(),
+                what: "chest 'chest.a'".into(),
+                at: Pos { x: 3, y: 7 },
+            },
+            ContentError::ObjectTileConflict {
+                room: "room.a".into(),
+                at: Pos { x: 3, y: 7 },
+            },
+            ContentError::FlagNeverSet {
+                flag: "flag.told_about_sanctuary".into(),
+            },
+            ContentError::UnknownPlate {
+                room: "room.a".into(),
+                puzzle: "puzzle.a".into(),
+                plate: "plate.missing".into(),
+            },
+            ContentError::RevealNotHidden {
+                room: "room.a".into(),
+                what: "torch 'torch.a'".into(),
+                at: Pos { x: 3, y: 7 },
+            },
+            ContentError::SecretOnMainRoute {
+                chest: "chest.a".into(),
+            },
+            ContentError::SecretRouteCritical {
+                chest: "chest.a".into(),
+            },
         ]
     }
 
@@ -342,6 +434,13 @@ mod tests {
                 ContentError::TooManySmallKeyDoors { .. } => "64-door limit".into(),
                 ContentError::EnemySpawnNotWalkable { room, .. } => room.clone(),
                 ContentError::EnemyPatrolInvalid { room, .. } => room.clone(),
+                ContentError::ObjectNotOnFloor { what, .. } => what.clone(),
+                ContentError::ObjectTileConflict { room, .. } => room.clone(),
+                ContentError::FlagNeverSet { flag } => flag.clone(),
+                ContentError::UnknownPlate { plate, .. } => plate.clone(),
+                ContentError::RevealNotHidden { what, .. } => what.clone(),
+                ContentError::SecretOnMainRoute { chest } => chest.clone(),
+                ContentError::SecretRouteCritical { chest } => chest.clone(),
             };
             if needle == "ember_required" {
                 assert!(text.contains("ember_required"), "{text}");

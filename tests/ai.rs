@@ -44,6 +44,9 @@ fn maze_world() -> Rc<World> {
         npcs: Vec::new(),
         enemies: Vec::new(),
         puzzles: Vec::new(),
+        torches: Vec::new(),
+        plates: Vec::new(),
+        hint: None,
     };
 
     Rc::new(World {
@@ -55,6 +58,7 @@ fn maze_world() -> Rc<World> {
         route: Route {
             ember_required: false,
             home: "room.maze".to_string(),
+            goal: "room.maze".to_string(),
         },
         rooms: vec![room],
         room_index: HashMap::from([("room.maze".to_string(), RoomIdx(0))]),
@@ -319,11 +323,23 @@ fn path_step_is_total_for_out_of_bounds_positions() {
     let out_of_bounds = Pos { x: 250, y: 250 };
 
     assert_eq!(
-        ai::path_step(room, &occupied, out_of_bounds, Pos { x: 1, y: 1 }),
+        ai::path_step(
+            room,
+            &occupied,
+            &occupied,
+            out_of_bounds,
+            Pos { x: 1, y: 1 }
+        ),
         None
     );
     assert_eq!(
-        ai::path_step(room, &occupied, Pos { x: 1, y: 1 }, out_of_bounds),
+        ai::path_step(
+            room,
+            &occupied,
+            &occupied,
+            Pos { x: 1, y: 1 },
+            out_of_bounds
+        ),
         None
     );
 }

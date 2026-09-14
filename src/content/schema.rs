@@ -65,8 +65,10 @@ impl Tile {
         }
     }
 
-    /// Whether the hero can step onto this tile (spec §6). `Hidden` is inert until phase 4: not
-    /// walkable, no reveal mechanic yet.
+    /// Whether the hero can step onto this tile, ignoring reveals (spec §6). `Hidden` is always
+    /// `false` here — this is the content-level predicate the validator's geometry checks use, and
+    /// content has no notion of which torch is lit. The simulation instead walks through
+    /// `GameState::walkable`, which treats a revealed `Hidden` tile as walkable too.
     pub fn is_walkable(self) -> bool {
         matches!(self, Tile::Floor | Tile::Door | Tile::Stairs)
     }
@@ -102,6 +104,7 @@ pub enum Reward {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub enum PuzzleKind {
+    StepPlates,
     PushBlock,
     Switches,
 }
@@ -143,6 +146,18 @@ pub struct Chest {
     pub id: String,
     pub at: Pos,
     pub contains: Reward,
+    /// A secret reward: off the main route, never route-critical (validator-enforced).
+    #[serde(default)]
+    pub secret: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DialogueNode {
+    pub text: String,
+    /// Set on the tick this node becomes the shown node.
+    #[serde(default)]
+    pub sets_flag: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -151,9 +166,37 @@ pub struct Npc {
     pub id: String,
     pub at: Pos,
     #[serde(default)]
-    pub dialogue: Vec<String>,
+    pub dialogue: Vec<DialogueNode>,
+    /// The NPC only talks once this flag is set; `None` means always.
     #[serde(default)]
     pub condition: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Torch {
+    pub id: String,
+    pub at: Pos,
+    /// `Tile::Hidden` positions in this room that become walkable once this torch is lit.
+    #[serde(default)]
+    pub reveals: Vec<Pos>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Plate {
+    pub id: String,
+    pub at: Pos,
+}
+
+/// An authored object solid enough to block the hero and every enemy, plus its index within its
+/// own `Room::{chests,npcs,torches}` vec. A `Plate` is authored separately (`Room::plate_at`) —
+/// it is the one object kind that is not solid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectKind {
+    Chest(u16),
+    Npc(u16),
+    Torch(u16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -170,6 +213,12 @@ pub struct EnemySpawn {
 pub struct Puzzle {
     pub id: String,
     pub kind: PuzzleKind,
+    /// Plate ids that must all be pressed (`StepPlates`).
+    #[serde(default)]
+    pub plates: Vec<String>,
+    /// `Tile::Hidden` positions revealed when the puzzle is solved.
+    #[serde(default)]
+    pub reveals: Vec<Pos>,
     #[serde(default)]
     pub reward: Option<Reward>,
 }
@@ -197,6 +246,13 @@ pub struct Room {
     pub enemies: Vec<EnemySpawn>,
     #[serde(default)]
     pub puzzles: Vec<Puzzle>,
+    #[serde(default)]
+    pub torches: Vec<Torch>,
+    #[serde(default)]
+    pub plates: Vec<Plate>,
+    /// Shown in the message row on entry. The §7 teaching prompt of the first room.
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 impl PartialEq for Room {
@@ -213,6 +269,9 @@ impl PartialEq for Room {
             && self.npcs == other.npcs
             && self.enemies == other.enemies
             && self.puzzles == other.puzzles
+            && self.torches == other.torches
+            && self.plates == other.plates
+            && self.hint == other.hint
     }
 }
 
@@ -231,6 +290,37 @@ impl Room {
     pub fn door_at(&self, pos: Pos) -> Option<&Door> {
         self.doors.iter().find(|d| d.at == pos)
     }
+
+    /// The solid authored object (chest, NPC or torch) at `pos`, if any.
+    pub fn object_at(&self, pos: Pos) -> Option<ObjectKind> {
+        if let Some(i) = self.chests.iter().position(|c| c.at == pos) {
+            return Some(ObjectKind::Chest(i as u16));
+        }
+        if let Some(i) = self.npcs.iter().position(|n| n.at == pos) {
+            return Some(ObjectKind::Npc(i as u16));
+        }
+        if let Some(i) = self.torches.iter().position(|t| t.at == pos) {
+            return Some(ObjectKind::Torch(i as u16));
+        }
+        None
+    }
+
+    /// The index of the plate at `pos`, if any. Plates are not solid, so they are not part of
+    /// `object_at`.
+    pub fn plate_at(&self, pos: Pos) -> Option<u16> {
+        self.plates
+            .iter()
+            .position(|p| p.at == pos)
+            .map(|i| i as u16)
+    }
+
+    /// Index of the plate with the given authored id, if any.
+    pub fn plate_index(&self, id: &str) -> Option<u16> {
+        self.plates
+            .iter()
+            .position(|p| p.id == id)
+            .map(|i| i as u16)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -245,6 +335,8 @@ pub struct StartPoint {
 pub struct Route {
     pub ember_required: bool,
     pub home: String,
+    /// The deepest room the main route must reach. Phase 4: the dungeon vestibule.
+    pub goal: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -328,5 +420,65 @@ mod tests {
     fn hidden_is_neither_walkable_nor_hazardous() {
         assert!(!Tile::Hidden.is_walkable());
         assert!(!Tile::Hidden.is_hazard());
+    }
+
+    fn test_room() -> Room {
+        Room {
+            id: "room.a".into(),
+            name: "A".into(),
+            kind: RoomKind::Overworld,
+            map_index: None,
+            rows: Vec::new(),
+            tiles: empty_tile_grid(),
+            doors: Vec::new(),
+            spawns: Vec::new(),
+            chests: vec![Chest {
+                id: "chest.a".into(),
+                at: Pos { x: 1, y: 1 },
+                contains: Reward::SmallKey,
+                secret: false,
+            }],
+            npcs: vec![Npc {
+                id: "npc.a".into(),
+                at: Pos { x: 2, y: 2 },
+                dialogue: Vec::new(),
+                condition: None,
+            }],
+            enemies: Vec::new(),
+            puzzles: Vec::new(),
+            torches: vec![Torch {
+                id: "torch.a".into(),
+                at: Pos { x: 3, y: 3 },
+                reveals: Vec::new(),
+            }],
+            plates: vec![Plate {
+                id: "plate.a".into(),
+                at: Pos { x: 4, y: 4 },
+            }],
+            hint: None,
+        }
+    }
+
+    #[test]
+    fn object_at_finds_each_solid_kind_by_index() {
+        let room = test_room();
+        assert_eq!(
+            room.object_at(Pos { x: 1, y: 1 }),
+            Some(ObjectKind::Chest(0))
+        );
+        assert_eq!(room.object_at(Pos { x: 2, y: 2 }), Some(ObjectKind::Npc(0)));
+        assert_eq!(
+            room.object_at(Pos { x: 3, y: 3 }),
+            Some(ObjectKind::Torch(0))
+        );
+        assert_eq!(room.object_at(Pos { x: 0, y: 0 }), None);
+    }
+
+    #[test]
+    fn plate_at_is_separate_from_object_at() {
+        let room = test_room();
+        assert_eq!(room.plate_at(Pos { x: 4, y: 4 }), Some(0));
+        assert_eq!(room.object_at(Pos { x: 4, y: 4 }), None);
+        assert_eq!(room.plate_at(Pos { x: 1, y: 1 }), None);
     }
 }
