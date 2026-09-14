@@ -1,6 +1,6 @@
 # Autodev progress — Mosslight
 
-- **Status:** running
+- **Status:** done
 - **Current:** finished
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260913-2128` · **PR:** https://github.com/korkholeh/mosslight/pull/1
 - **Stack:** Rust 1.98.1 stable (pinned), single lib+bin Cargo package — ratatui 0.30.2 (crossterm 0.29 via its re-export), clap 4.6, serde 1, ron 0.12 (content), serde_json 1 (saves), signal-hook 0.4; no async runtime, no ECS, no runtime assets. · **Profile:** `rust-tui`
@@ -144,6 +144,8 @@
 - `2026-09-14 14:41:05` **stack** — linked: 7 pull requests — Checking existing stacks... Looking up PRs for 7 branches... ✓ Updated stack to 7 PRs (stack #5)
 - `2026-09-14 14:41:12` **stack-merge** — done: 1 pull request(s) into main
 - `2026-09-14 14:51:25` **finalize** — done (10m, $5.77): Shippable: the full documentation set is consistent with the built system and every command in it was run, not asserted. The gate is green on aarch64-apple-darwin — fmt, clippy -D warnings, 303 tests across 30 binaries (0 failed), release build (2.3 MB), and cargo install --path . --locked. Deliver…
+- `2026-09-14 14:51:25` **finalize** — done: Shippable: the full documentation set is consistent with the built system and every command in it was run, not asserted. The gate is green on aarch64-apple-darwin — fmt, clippy -D warnings, 303 tests…
+- `2026-09-14 14:51:25` **run** — done: all 7 phases completed
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.
