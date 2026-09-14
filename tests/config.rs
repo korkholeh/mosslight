@@ -83,22 +83,28 @@ fn version_flag_exits_0_on_stdout() {
     assert!(!err.message.is_empty());
 }
 
-/// `--unicode` is withdrawn (see `docs/user/cli.md` and DECISIONS.md): it must be neither
-/// advertised nor accepted.
+/// `--unicode` is advertised (spec §4/§12's optional, verified-width enhancement; see
+/// DECISIONS.md for the reversal of the earlier withdrawal).
 #[test]
-fn unicode_flag_is_not_offered() {
+fn unicode_flag_is_offered() {
     let err = Config::from_args(["mosslight", "--help"], &env()).unwrap_err();
     assert_eq!(err.code, 0);
     assert!(
-        !err.message.contains("--unicode"),
-        "the withdrawn --unicode flag must not appear in --help: {}",
+        err.message.contains("--unicode"),
+        "--unicode must appear in --help: {}",
         err.message
     );
 }
 
 #[test]
-fn unicode_flag_is_rejected_with_exit_2() {
-    let err = Config::from_args(["mosslight", "--unicode"], &env()).unwrap_err();
+fn unicode_flag_selects_the_unicode_glyph_set() {
+    let cfg = Config::from_args(["mosslight", "--unicode"], &env()).unwrap();
+    assert_eq!(cfg.glyphs, GlyphSet::Unicode);
+}
+
+#[test]
+fn ascii_and_unicode_together_is_rejected() {
+    let err = Config::from_args(["mosslight", "--ascii", "--unicode"], &env()).unwrap_err();
     assert_eq!(err.code, 2);
     assert_eq!(err.stream, mosslight::config::OutputStream::Stderr);
 }

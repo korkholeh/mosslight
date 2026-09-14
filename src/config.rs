@@ -5,13 +5,18 @@ use std::path::PathBuf;
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser, ValueEnum};
 
-/// ASCII is the only glyph set: Unicode was withdrawn (see `docs/user/cli.md` and DECISIONS.md —
-/// every Unicode block that would improve on ASCII is `East_Asian_Width=Ambiguous`, which can
-/// silently double a tile's on-screen width under a CJK locale, and the blocks that are safely
-/// `Neutral` look no better than ASCII or are missing from common monospace fonts).
+/// `Ascii` is the default and the only glyph set guaranteed to render as one column everywhere.
+/// `Unicode` is spec §4's optional, verified-width enhancement: every glyph in
+/// `render::tiles::unicode_glyph` was individually checked against Unicode's `East_Asian_Width`
+/// property and is `Neutral`/`Narrow`, never `Ambiguous`/`Wide` — the blocks that are ambiguous
+/// (most box drawing, block elements, arrows, geometric shapes) are what got `--unicode` withdrawn
+/// for a time (see DECISIONS.md); this table sidesteps that by hand-picking only the safe
+/// subset instead of trying to offer everything. No `unicode-width` dependency is needed because
+/// the table is a fixed compile-time set of characters, not a width probe over arbitrary text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum GlyphSet {
     Ascii,
+    Unicode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,10 +65,14 @@ pub const DEFAULT_SEED: u64 = 0x4D6F73736C696768; // "Mosslig" in ASCII hex, arb
 #[derive(Debug, Parser)]
 #[command(name = "mosslight", version, about = "A terminal adventure.")]
 struct Cli {
-    /// Render with ASCII glyphs. The default, and — since Unicode was withdrawn — the only glyph
-    /// set; kept as an explicit affirmation flag (spec §12).
-    #[arg(long)]
+    /// Render with ASCII glyphs (spec §12). The default; kept as an explicit affirmation flag and
+    /// to reject `--ascii --unicode` together.
+    #[arg(long, conflicts_with = "unicode")]
     ascii: bool,
+
+    /// Render with the verified-width Unicode glyph table (spec §4/§12) instead of ASCII.
+    #[arg(long)]
+    unicode: bool,
 
     /// Colour mode.
     #[arg(long, value_enum, default_value_t = ColorArg::Auto)]
@@ -159,10 +168,12 @@ impl Config {
             }
         })?;
 
-        // `--ascii` is accepted but changes nothing: `GlyphSet::Ascii` is the only glyph set now
-        // that Unicode is withdrawn.
-        let _ = cli.ascii;
-        let glyphs = GlyphSet::Ascii;
+        let _ = cli.ascii; // accepted for explicit affirmation of the default; changes nothing.
+        let glyphs = if cli.unicode {
+            GlyphSet::Unicode
+        } else {
+            GlyphSet::Ascii
+        };
 
         let color = resolve_color(
             Some(cli.color),

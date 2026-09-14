@@ -11,11 +11,12 @@ use ratatui::style::Style;
 use ratatui::Frame;
 
 use crate::app::{App, Mode, MIN_COLS, MIN_ROWS};
+use crate::config::GlyphSet;
 pub use theme::Theme;
 
 const HINT_TEXT: &str = "Esc: pause/back  Q: quit  ?: help";
 
-pub fn draw(frame: &mut Frame, app: &App, theme: Theme) {
+pub fn draw(frame: &mut Frame, app: &App, theme: Theme, glyphs: GlyphSet) {
     let area = frame.area();
 
     // `app.mode` only becomes `TooSmall` once a resize event (or the startup probe) has told
@@ -35,7 +36,7 @@ pub fn draw(frame: &mut Frame, app: &App, theme: Theme) {
     let buf = frame.buffer_mut();
 
     hud::draw_hud(buf, layout, &app.state);
-    scene::draw_scene(buf, layout, &app.state, theme);
+    scene::draw_scene(buf, layout, &app.state, theme, glyphs);
     draw_message_row(buf, layout, &app.message);
     draw_hint_row(buf, layout);
     overlays::draw_overlay_for_mode(buf, area, app);

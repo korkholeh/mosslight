@@ -10,6 +10,7 @@ use ratatui::widgets::{Block, Borders, Widget};
 
 use super::theme::Theme;
 use super::tiles::{glyph, Kind};
+use crate::config::GlyphSet;
 use crate::game::ai::strike_tiles;
 use crate::game::tuning::GUARDIAN_DASH_TILES;
 use crate::game::{AiState, Facing, GameState, ObjectRef, Pos, PuzzleKind, Room, Tile};
@@ -91,7 +92,13 @@ fn telegraph_lane(room: &Room, from: Pos, facing: Facing) -> Vec<Pos> {
 /// Paints tiles (a revealed `Hidden` tile draws as floor), then plates, then chests/NPCs/torches,
 /// then the guardian danger cue, then enemies, then the sword, then the hero — so the hero is
 /// never hidden by an enemy and the sword is never hidden by a tile.
-pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Theme) {
+pub fn draw_scene(
+    buf: &mut Buffer,
+    layout: Layout,
+    state: &GameState,
+    theme: Theme,
+    glyphs: GlyphSet,
+) {
     let block = Block::default().borders(Borders::ALL);
     Widget::render(block, layout.scene_area(), buf);
 
@@ -110,7 +117,7 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
             };
             let col = layout.tile_col(tx as u8);
             let row_y = layout.tile_row(ty as u8);
-            set_tile(buf, col, row_y, kind, theme);
+            set_tile(buf, col, row_y, kind, theme, glyphs);
         }
     }
 
@@ -124,7 +131,7 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
         };
         let col = layout.tile_col(plate.at.x);
         let row_y = layout.tile_row(plate.at.y);
-        set_tile(buf, col, row_y, kind, theme);
+        set_tile(buf, col, row_y, kind, theme, glyphs);
     }
 
     for (i, chest) in room.chests.iter().enumerate() {
@@ -136,17 +143,17 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
         let kind = if opened { Kind::ChestOpen } else { Kind::Chest };
         let col = layout.tile_col(chest.at.x);
         let row_y = layout.tile_row(chest.at.y);
-        set_tile(buf, col, row_y, kind, theme);
+        set_tile(buf, col, row_y, kind, theme, glyphs);
     }
     for npc in &room.npcs {
         let col = layout.tile_col(npc.at.x);
         let row_y = layout.tile_row(npc.at.y);
-        set_tile(buf, col, row_y, Kind::Npc, theme);
+        set_tile(buf, col, row_y, Kind::Npc, theme, glyphs);
     }
     for beacon in &room.beacons {
         let col = layout.tile_col(beacon.at.x);
         let row_y = layout.tile_row(beacon.at.y);
-        set_tile(buf, col, row_y, Kind::Beacon, theme);
+        set_tile(buf, col, row_y, Kind::Beacon, theme, glyphs);
     }
     for (i, torch) in room.torches.iter().enumerate() {
         let permanently_lit = state
@@ -167,12 +174,12 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
         let kind = if lit { Kind::TorchLit } else { Kind::Torch };
         let col = layout.tile_col(torch.at.x);
         let row_y = layout.tile_row(torch.at.y);
-        set_tile(buf, col, row_y, kind, theme);
+        set_tile(buf, col, row_y, kind, theme, glyphs);
     }
     for &pos in &state.puzzle.blocks {
         let col = layout.tile_col(pos.x);
         let row_y = layout.tile_row(pos.y);
-        set_tile(buf, col, row_y, Kind::Block, theme);
+        set_tile(buf, col, row_y, Kind::Block, theme, glyphs);
     }
     for enemy in state.enemies.iter().filter(|e| e.alive) {
         match enemy.ai {
@@ -180,14 +187,14 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
                 for lane_pos in telegraph_lane(room, enemy.pos, facing) {
                     let col = layout.tile_col(lane_pos.x);
                     let row_y = layout.tile_row(lane_pos.y);
-                    set_tile(buf, col, row_y, Kind::Telegraph, theme);
+                    set_tile(buf, col, row_y, Kind::Telegraph, theme, glyphs);
                 }
             }
             AiState::BossWindup { pattern, .. } => {
                 for tile_pos in strike_tiles(pattern, enemy.pos, room) {
                     let col = layout.tile_col(tile_pos.x);
                     let row_y = layout.tile_row(tile_pos.y);
-                    set_tile(buf, col, row_y, Kind::Telegraph, theme);
+                    set_tile(buf, col, row_y, Kind::Telegraph, theme, glyphs);
                 }
             }
             _ => {}
@@ -202,24 +209,24 @@ pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Th
         };
         let col = layout.tile_col(enemy.pos.x);
         let row_y = layout.tile_row(enemy.pos.y);
-        set_tile(buf, col, row_y, kind, theme);
+        set_tile(buf, col, row_y, kind, theme, glyphs);
     }
 
     if let Some(at) = state.hero.attack.as_ref().and_then(|swing| swing.at) {
         let col = layout.tile_col(at.x);
         let row_y = layout.tile_row(at.y);
-        set_tile(buf, col, row_y, Kind::Sword, theme);
+        set_tile(buf, col, row_y, Kind::Sword, theme, glyphs);
     }
 
     let hero_pos: Pos = state.hero.pos;
     let col = layout.tile_col(hero_pos.x);
     let row_y = layout.tile_row(hero_pos.y);
-    set_tile(buf, col, row_y, Kind::Hero, theme);
+    set_tile(buf, col, row_y, Kind::Hero, theme, glyphs);
 }
 
-fn set_tile(buf: &mut Buffer, col: u16, row: u16, kind: Kind, theme: Theme) {
+fn set_tile(buf: &mut Buffer, col: u16, row: u16, kind: Kind, theme: Theme, glyphs: GlyphSet) {
     let style = Style::default().fg(theme.color_for(kind));
-    let text = format!("{} ", glyph(kind));
+    let text = format!("{} ", glyph(kind, glyphs));
     buf.set_string(col, row, text, style);
 }
 

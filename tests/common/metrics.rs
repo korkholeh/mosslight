@@ -63,6 +63,7 @@ pub struct Harness {
     pacer: Pacer,
     pending: Vec<Action>,
     theme: Theme,
+    glyphs: GlyphSet,
     counter: ByteCounter,
 }
 
@@ -83,6 +84,7 @@ impl Harness {
         };
         let app = App::new(&config, world(), Box::new(MemorySaveIo::new()));
         let theme = Theme::new(config.theme, config.color);
+        let glyphs = config.glyphs;
         let counter = ByteCounter::default();
         let backend = CrosstermBackend::new(counter.clone());
         let terminal = Terminal::with_options(
@@ -99,6 +101,7 @@ impl Harness {
             pacer: Pacer::new(fps),
             pending: Vec::new(),
             theme,
+            glyphs,
             counter,
         }
     }
@@ -116,8 +119,9 @@ impl Harness {
         if draw_due(&mut self.app, due) {
             let app = &self.app;
             let theme = self.theme;
+            let glyphs = self.glyphs;
             self.terminal
-                .draw(|frame| render::draw(frame, app, theme))
+                .draw(|frame| render::draw(frame, app, theme, glyphs))
                 .expect("draw to a byte-counting backend never fails");
         }
     }

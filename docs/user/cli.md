@@ -3,6 +3,7 @@
 ```text
 mosslight
   --ascii
+  --unicode
   --color auto|always|never
   --theme gameboy|ansi|mono
   --fps 10|20|30
@@ -14,7 +15,8 @@ mosslight
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--ascii` | on | ASCII glyph table (spec §4) — the only one there is; see "The Unicode decision" below. |
+| `--ascii` | on | ASCII glyph table (spec §4). The default; mutually exclusive with `--unicode`. |
+| `--unicode` | off | Verified-width Unicode glyph table (spec §4's optional enhancement); see "The Unicode decision" below. Mutually exclusive with `--ascii`. |
 | `--color <auto\|always\|never>` | `auto` | See precedence below. |
 | `--theme <gameboy\|ansi\|mono>` | `gameboy` | Colour only — every theme uses the identical glyph table, so `mono` stays fully legible. `gameboy` is four indexed greens (a 256-colour terminal); `ansi` is the 16-colour fallback for a terminal that cannot show indexed colour; `mono` is white/black-family only. |
 | `--fps <10\|20\|30>` | `20` | Caps rendering only. Simulation always runs at a fixed 30 Hz regardless of this flag (spec §9); any other value is a clap usage error, not a silent clamp. |
@@ -30,14 +32,24 @@ Running over SSH or under tmux/screen: see `docs/user/ssh.md`.
 
 ### The Unicode decision
 
-There is no `--unicode` flag. §4 requires "only characters of verified width," and every Unicode
-block that would look better than ASCII (box drawing, geometric shapes, block elements, arrows,
-card suits) is `East_Asian_Width=Ambiguous` — it can silently render two columns wide under a CJK
-locale or a terminal's "ambiguous characters are wide" setting, which would shear the fixed 24x16
-tile grid. The blocks that are safely `Neutral` either look no better than ASCII (Latin Extended,
-IPA) or are commonly missing from monospace fonts (Runic). So ASCII is the one glyph table,
-`--ascii` is kept only as an explicit affirmation of the default, and passing `--unicode` is a
-usage error (exit code 2) rather than a flag that silently does nothing.
+§4 requires "only characters of verified width." Most Unicode blocks that would look better than
+ASCII — box drawing, most of Block Elements, most arrows, most geometric shapes — are
+`East_Asian_Width=Ambiguous`: they can silently render two columns wide under a CJK locale or a
+terminal's "ambiguous characters are wide" setting, which would shear the fixed 24x16 tile grid.
+An earlier revision of this project withdrew `--unicode` entirely for exactly that reason rather
+than ship a half-populated or width-unsafe table (see `.autodev/DECISIONS.md`).
+
+`--unicode` is back, on a narrower footing: `render::tiles::unicode_glyph` is a complete,
+hand-picked 24-glyph table where every character was individually checked against Unicode's
+`East_Asian_Width` property (via Python's `unicodedata`, which encodes the same data as
+`EastAsianWidth.txt`) and is `Neutral` or `Narrow` — never `Ambiguous`, `Wide`, or `Fullwidth`.
+Because the table is a fixed set of characters chosen at development time, not a width probe over
+arbitrary text, no `unicode-width` runtime dependency is needed (`Cargo.toml` stays fixed). A unit
+test (`render::tiles::tests::every_unicode_glyph_is_a_verified_safe_codepoint`) pins the table
+against the exact characters that were checked, so a future edit that swaps in an unchecked
+character fails the gate rather than shipping silently.
+
+`--ascii` and `--unicode` are mutually exclusive; passing both is a usage error (exit code 2).
 
 ## Colour precedence
 

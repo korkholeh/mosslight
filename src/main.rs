@@ -185,7 +185,7 @@ fn run(config: &Config, diagnostics: &mut Diagnostics, world: World) -> i32 {
         }
 
         if draw_due(&mut app, due) {
-            let draw_result = term.draw(|frame| render::draw(frame, &app, theme));
+            let draw_result = term.draw(|frame| render::draw(frame, &app, theme, config.glyphs));
             if let Err(e) = draw_result {
                 diagnostics.push(format!("write error: {e}"));
                 break 'outer 1;

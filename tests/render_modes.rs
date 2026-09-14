@@ -12,7 +12,7 @@
 mod common;
 
 use mosslight::app::App;
-use mosslight::config::{ColorMode, Config, Env, ThemeName};
+use mosslight::config::{ColorMode, Config, Env, GlyphSet, ThemeName};
 use mosslight::game::{Action, AiState, Enemy, EnemyId, EnemyKind, Facing, Pos};
 use mosslight::render::scene::Layout;
 use mosslight::render::{self, Theme};
@@ -60,7 +60,8 @@ fn crossroads_scene() -> App {
 fn render_text(app: &App, theme: Theme) -> String {
     let backend = TestBackend::new(W, H);
     let mut term = Terminal::new(backend).expect("TestBackend never fails");
-    term.draw(|f| render::draw(f, app, theme)).unwrap();
+    term.draw(|f| render::draw(f, app, theme, GlyphSet::Ascii))
+        .unwrap();
     buffer_text(term.backend().buffer())
 }
 
@@ -107,8 +108,15 @@ fn gameboy_uses_only_the_four_authored_greens() {
     let text = render_text(&app, Theme::new(ThemeName::Gameboy, ColorMode::Always));
     let backend = TestBackend::new(W, H);
     let mut term = Terminal::new(backend).unwrap();
-    term.draw(|f| render::draw(f, &app, Theme::new(ThemeName::Gameboy, ColorMode::Always)))
-        .unwrap();
+    term.draw(|f| {
+        render::draw(
+            f,
+            &app,
+            Theme::new(ThemeName::Gameboy, ColorMode::Always),
+            GlyphSet::Ascii,
+        )
+    })
+    .unwrap();
     for color in scene_tile_colors(term.backend().buffer()) {
         assert!(
             matches!(
@@ -128,8 +136,15 @@ fn ansi_uses_only_the_sixteen_named_ansi_colors() {
     let app = crossroads_scene();
     let backend = TestBackend::new(W, H);
     let mut term = Terminal::new(backend).unwrap();
-    term.draw(|f| render::draw(f, &app, Theme::new(ThemeName::Ansi, ColorMode::Always)))
-        .unwrap();
+    term.draw(|f| {
+        render::draw(
+            f,
+            &app,
+            Theme::new(ThemeName::Ansi, ColorMode::Always),
+            GlyphSet::Ascii,
+        )
+    })
+    .unwrap();
     for color in scene_tile_colors(term.backend().buffer()) {
         assert!(
             matches!(
@@ -161,8 +176,15 @@ fn mono_uses_only_white_family_colors() {
     let app = crossroads_scene();
     let backend = TestBackend::new(W, H);
     let mut term = Terminal::new(backend).unwrap();
-    term.draw(|f| render::draw(f, &app, Theme::new(ThemeName::Mono, ColorMode::Always)))
-        .unwrap();
+    term.draw(|f| {
+        render::draw(
+            f,
+            &app,
+            Theme::new(ThemeName::Mono, ColorMode::Always),
+            GlyphSet::Ascii,
+        )
+    })
+    .unwrap();
     for color in scene_tile_colors(term.backend().buffer()) {
         assert!(
             matches!(
@@ -180,8 +202,15 @@ fn color_mode_never_writes_no_color_at_all() {
     for theme_name in [ThemeName::Gameboy, ThemeName::Ansi, ThemeName::Mono] {
         let backend = TestBackend::new(W, H);
         let mut term = Terminal::new(backend).unwrap();
-        term.draw(|f| render::draw(f, &app, Theme::new(theme_name, ColorMode::Never)))
-            .unwrap();
+        term.draw(|f| {
+            render::draw(
+                f,
+                &app,
+                Theme::new(theme_name, ColorMode::Never),
+                GlyphSet::Ascii,
+            )
+        })
+        .unwrap();
         for color in scene_tile_colors(term.backend().buffer()) {
             assert_eq!(
                 color,
@@ -218,7 +247,7 @@ fn no_color_env_disables_color_and_an_explicit_color_flag_overrides_it() {
     assert_eq!(cfg.color, ColorMode::Never);
     let backend = TestBackend::new(W, H);
     let mut term = Terminal::new(backend).unwrap();
-    term.draw(|f| render::draw(f, &app, Theme::new(cfg.theme, cfg.color)))
+    term.draw(|f| render::draw(f, &app, Theme::new(cfg.theme, cfg.color), cfg.glyphs))
         .unwrap();
     for color in scene_tile_colors(term.backend().buffer()) {
         assert_eq!(color, Color::Reset, "NO_COLOR must disable colour");
@@ -233,8 +262,15 @@ fn no_color_env_disables_color_and_an_explicit_color_flag_overrides_it() {
     );
     let backend = TestBackend::new(W, H);
     let mut term = Terminal::new(backend).unwrap();
-    term.draw(|f| render::draw(f, &app, Theme::new(overridden.theme, overridden.color)))
-        .unwrap();
+    term.draw(|f| {
+        render::draw(
+            f,
+            &app,
+            Theme::new(overridden.theme, overridden.color),
+            overridden.glyphs,
+        )
+    })
+    .unwrap();
     assert!(
         scene_tile_colors(term.backend().buffer())
             .iter()

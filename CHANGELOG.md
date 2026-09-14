@@ -2,6 +2,14 @@
 
 All notable user-visible changes to Mosslight are recorded here.
 
+## Unreleased
+
+- **`--unicode` is back**, on a narrower footing than before: a hand-picked, width-verified glyph
+  table (every character checked as `Neutral`/`Narrow` under Unicode's `East_Asian_Width`, never
+  `Ambiguous`/`Wide`), covering every tile/hero/enemy/object kind. `--ascii` stays the default and
+  `--ascii --unicode` together is still a usage error. See "The Unicode decision" in
+  `docs/user/cli.md`.
+
 ## 0.1.0 — 2026-09-14
 
 First release. The game is completable start to finish and saves your progress.

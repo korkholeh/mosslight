@@ -1175,3 +1175,29 @@ Appended by agents whenever they choose between options without a human.
   design-of-record and its value is showing what was intended; rewriting it erases the divergence a
   future reader needs to see. The built system is stated as the truth in the reconciliation table. —
   alternatives: edit `.autodev/ARCHITECTURE.md` in place; leave the divergences only in DECISIONS.md.
+- [feature/glyphs] `--unicode` is revived, on a narrower footing than the phase-6 withdrawal (line
+  720 above): `render::tiles::unicode_glyph` is a complete, hand-picked 24-glyph second table where
+  every character was individually checked against Unicode's `East_Asian_Width` property (via
+  Python's `unicodedata`, which encodes the same data as `EastAsianWidth.txt`) and is `Neutral` or
+  `Narrow`, never `Ambiguous`/`Wide`/`Fullwidth` — the property class that made the withdrawn blocks
+  (Box Drawing, most of Block Elements, most arrows, most geometric shapes) unsafe in a CJK locale
+  or under a terminal's "ambiguous characters are wide" setting. `GlyphSet` regains its `Unicode`
+  variant, `--unicode`/`--ascii` are mutually exclusive again, `Config::glyphs` threads through
+  `render::draw`/`scene::draw_scene`/`tiles::glyph` (`Theme` stays colour-only per its existing
+  invariant; glyph-set selection is a separate axis). `src/render/tiles.rs` pins the exact verified
+  characters in `tests::every_unicode_glyph_is_a_verified_safe_codepoint`, so a future edit that
+  swaps in an unverified character fails the gate instead of shipping silently — this is the
+  completeness guarantee RISKS #15 originally asked for, now met without the `unicode-width`
+  dependency the phase-6 decision ruled out (the table is fixed at compile time, not a width probe
+  over arbitrary text). Manually verified in a real terminal (tmux, default font): the bordered
+  scene grid stays perfectly column-aligned under `--unicode` with no shear. — why: the user asked
+  for clearer glyphs than the ASCII table's overloaded letters/punctuation (e.g. `o`/`v`/`^` for
+  slime/pit/bat, `C`/`c` and `t`/`T` case-only pairs for chest/torch state); spec §4 already
+  sanctions Unicode as an optional, verified-width enhancement, and the original withdrawal's
+  reasoning (ambiguous-width blocks, no `unicode-width` dependency) is fully addressed by hand
+  verification instead of a runtime crate. — alternatives: replace glyphs directly in the sole
+  ASCII table (rejected: spec §4 requires the *default* mode be ASCII, so the base table cannot
+  become Unicode); add `unicode-width` and try to offer the full "looks better" block set (rejected:
+  reopens the dependency-freeze conversation for a game with a fixed, known glyph inventory that a
+  hand-check already covers completely); leave `--unicode` withdrawn and only fix the most-confusing
+  ASCII assignments (rejected by the user in favour of full revival).

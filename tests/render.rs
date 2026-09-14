@@ -57,7 +57,8 @@ fn render_at(w: u16, h: u16, setup: impl FnOnce(&mut App)) -> Buffer {
     let theme = Theme::new(cfg().theme, ColorMode::Always);
     let backend = TestBackend::new(w, h);
     let mut term = Terminal::new(backend).unwrap();
-    term.draw(|f| render::draw(f, &app, theme)).unwrap();
+    term.draw(|f| render::draw(f, &app, theme, cfg().glyphs))
+        .unwrap();
     term.backend().buffer().clone()
 }
 
@@ -114,7 +115,8 @@ fn draw_never_panics_on_a_too_small_frame_even_without_a_prior_resize() {
         let theme = Theme::new(cfg().theme, ColorMode::Always);
         let backend = TestBackend::new(w, h);
         let mut term = Terminal::new(backend).unwrap();
-        term.draw(|f| render::draw(f, &app, theme)).unwrap();
+        term.draw(|f| render::draw(f, &app, theme, cfg().glyphs))
+            .unwrap();
         let text = buffer_text(term.backend().buffer());
         assert!(
             text.contains("60x24"),
@@ -190,7 +192,8 @@ fn scene_renders_identical_characters_under_every_theme() {
             let theme = Theme::new(theme_name, ColorMode::Always);
             let backend = TestBackend::new(60, 24);
             let mut term = Terminal::new(backend).unwrap();
-            term.draw(|f| render::draw(f, &app, theme)).unwrap();
+            term.draw(|f| render::draw(f, &app, theme, cfg().glyphs))
+                .unwrap();
             buffer_text(term.backend().buffer())
         })
         .collect();
@@ -258,7 +261,8 @@ fn object_kind_glyphs_render_identically_under_every_theme() {
                 let theme = Theme::new(theme_name, ColorMode::Always);
                 let backend = TestBackend::new(60, 24);
                 let mut term = Terminal::new(backend).unwrap();
-                term.draw(|f| render::draw(f, &app, theme)).unwrap();
+                term.draw(|f| render::draw(f, &app, theme, cfg().glyphs))
+                    .unwrap();
                 buffer_text(term.backend().buffer())
             })
             .collect();
@@ -492,7 +496,8 @@ fn save_problem_overlay_offers_a_backup_restore_over_a_corrupt_slot() {
     let backend = TestBackend::new(60, 24);
     let mut term = Terminal::new(backend).unwrap();
     let theme = Theme::new(cfg().theme, ColorMode::Always);
-    term.draw(|f| render::draw(f, &app, theme)).unwrap();
+    term.draw(|f| render::draw(f, &app, theme, cfg().glyphs))
+        .unwrap();
     let text = buffer_text(term.backend().buffer());
     assert!(text.contains("Save damaged"));
     assert!(text.contains("Restore backup"));
