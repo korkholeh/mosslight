@@ -106,6 +106,14 @@ pub enum ContentError {
     TooManySmallKeyDoors {
         count: usize,
     },
+    EnemySpawnNotWalkable {
+        room: String,
+        at: Pos,
+    },
+    EnemyPatrolInvalid {
+        room: String,
+        at: Pos,
+    },
 }
 
 impl fmt::Display for ContentError {
@@ -198,6 +206,16 @@ impl fmt::Display for ContentError {
                 f,
                 "{count} SmallKey-locked doors exceeds the reachability search's 64-door limit"
             ),
+            ContentError::EnemySpawnNotWalkable { room, at } => write!(
+                f,
+                "{room}: enemy spawn at ({}, {}) is not walkable",
+                at.x, at.y
+            ),
+            ContentError::EnemyPatrolInvalid { room, at } => write!(
+                f,
+                "{room}: enemy patrol waypoint at ({}, {}) is not walkable",
+                at.x, at.y
+            ),
         }
     }
 }
@@ -287,6 +305,14 @@ mod tests {
                 from_spawn: "spawn.b.fromA".into(),
             },
             ContentError::TooManySmallKeyDoors { count: 65 },
+            ContentError::EnemySpawnNotWalkable {
+                room: "room.a".into(),
+                at: Pos { x: 3, y: 7 },
+            },
+            ContentError::EnemyPatrolInvalid {
+                room: "room.a".into(),
+                at: Pos { x: 3, y: 7 },
+            },
         ]
     }
 
@@ -314,6 +340,8 @@ mod tests {
                 ContentError::DuplicateMapIndex { .. } => "map_index".into(),
                 ContentError::DoorUnreachableInRoom { door, .. } => door.clone(),
                 ContentError::TooManySmallKeyDoors { .. } => "64-door limit".into(),
+                ContentError::EnemySpawnNotWalkable { room, .. } => room.clone(),
+                ContentError::EnemyPatrolInvalid { room, .. } => room.clone(),
             };
             if needle == "ember_required" {
                 assert!(text.contains("ember_required"), "{text}");

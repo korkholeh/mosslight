@@ -38,3 +38,57 @@ pub const ROOM_W: usize = 24;
 
 /// Room height in tiles.
 pub const ROOM_H: usize = 16;
+
+/// Sword damage dealt to an enemy per hit.
+pub const SWORD_DAMAGE_HP: u8 = 1;
+
+/// Contact damage dealt to the hero, in half-hearts.
+pub const CONTACT_DAMAGE_HALVES: u8 = 1;
+
+/// Knockback distance on hero contact damage, in tiles.
+pub const KNOCKBACK_TILES: u8 = 1;
+
+/// Slime hit points.
+pub const SLIME_HP: u8 = 2;
+/// Slime movement interval: 12 ticks = 400 ms.
+pub const SLIME_STEP_TICKS: u64 = 12;
+/// Manhattan radius at which an idle slime notices the hero.
+pub const SLIME_AGGRO_RADIUS: i32 = 5;
+/// Idle phase length: 60 ticks = 2000 ms.
+pub const SLIME_IDLE_TICKS: u64 = 60;
+/// Chase phase length: 90 ticks = 3000 ms.
+pub const SLIME_CHASE_TICKS: u64 = 90;
+
+/// Bat hit points.
+pub const BAT_HP: u8 = 1;
+/// Bat movement interval: 6 ticks = 200 ms, faster than the slime.
+pub const BAT_STEP_TICKS: u64 = 6;
+/// Steps taken per dart.
+pub const BAT_DART_STEPS: u8 = 4;
+/// Rest phase length: 30 ticks = 1000 ms.
+pub const BAT_REST_TICKS: u64 = 30;
+/// Manhattan radius at which a dart aims at the hero instead of a random direction.
+pub const BAT_AGGRO_RADIUS: i32 = 6;
+
+/// Guardian hit points.
+pub const GUARDIAN_HP: u8 = 4;
+/// Manhattan sight distance along the facing axis that triggers a telegraph.
+pub const GUARDIAN_SIGHT: i32 = 8;
+/// Unconditional patrol-to-telegraph timeout: 150 ticks = 5000 ms — guarantees the cycle never
+/// stalls even in an empty maze with the hero out of sight.
+pub const GUARDIAN_PATROL_TICKS: u64 = 150;
+/// Patrol movement interval: 10 ticks = 333 ms.
+pub const GUARDIAN_PATROL_STEP_TICKS: u64 = 10;
+/// Telegraph hold length. Fixed to the §6 floor so it cannot drift out of sync.
+pub const GUARDIAN_TELEGRAPH_TICKS: u64 = TELEGRAPH_MIN_TICKS;
+/// Dash distance, in tiles.
+pub const GUARDIAN_DASH_TILES: u8 = 5;
+/// Dash movement interval: 3 ticks = 100 ms, much faster than patrol.
+pub const GUARDIAN_DASH_STEP_TICKS: u64 = 3;
+/// Recovery hold length (the only window in which the guardian takes damage): 30 ticks = 1000 ms.
+pub const GUARDIAN_RECOVER_TICKS: u64 = 30;
+
+/// Upper bound on ticks between two consecutive `AiState` changes for any enemy kind, given the
+/// constants above (guardian's worst case: patrol timeout + telegraph + dash + recover). Used by
+/// `tests/ai.rs` to assert liveness.
+pub const MAX_STALL_TICKS: u64 = 300;

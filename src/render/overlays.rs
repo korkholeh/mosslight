@@ -88,6 +88,19 @@ pub fn draw_help(buf: &mut Buffer, area: Rect) {
     );
 }
 
+pub fn draw_game_over(buf: &mut Buffer, area: Rect) {
+    let box_area = centered_box(area, 40, 5);
+    draw_box(
+        buf,
+        box_area,
+        "You fell",
+        &[
+            "Enter: retry from the last room".to_string(),
+            "Esc: main menu".to_string(),
+        ],
+    );
+}
+
 pub fn draw_too_small(buf: &mut Buffer, area: Rect, required: (u16, u16), current: (u16, u16)) {
     let text = format!(
         "Terminal too small.\nRequired: {}x{}\nCurrent: {}x{}",
@@ -106,6 +119,7 @@ pub fn draw_overlay_for_mode(buf: &mut Buffer, area: Rect, app: &App) {
         Mode::Paused => draw_pause(buf, area),
         Mode::ConfirmQuit => draw_confirm_quit(buf, area),
         Mode::Help => draw_help(buf, area),
+        Mode::GameOver => draw_game_over(buf, area),
         Mode::Playing | Mode::TooSmall => {}
     }
 }

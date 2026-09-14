@@ -10,7 +10,8 @@ use ratatui::widgets::{Block, Borders, Widget};
 
 use super::theme::Theme;
 use super::tiles::{glyph, Kind};
-use crate::game::{GameState, Pos};
+use crate::game::tuning::GUARDIAN_DASH_TILES;
+use crate::game::{AiState, Facing, GameState, Pos, Room};
 
 pub const BLOCK_W: u16 = 50;
 pub const BLOCK_H: u16 = 21;
@@ -61,17 +62,67 @@ impl Layout {
     }
 }
 
+/// Up to `GUARDIAN_DASH_TILES` tiles ahead of `from` in `facing`, stopping at the first
+/// non-walkable tile — the danger cue mirrors where a dash would actually stop.
+fn telegraph_lane(room: &Room, from: Pos, facing: Facing) -> Vec<Pos> {
+    let mut lane = Vec::new();
+    let mut pos = from;
+    for _ in 0..GUARDIAN_DASH_TILES {
+        let next = match facing {
+            Facing::North => pos.y.checked_sub(1).map(|y| Pos { x: pos.x, y }),
+            Facing::South => pos.y.checked_add(1).map(|y| Pos { x: pos.x, y }),
+            Facing::East => pos.x.checked_add(1).map(|x| Pos { x, y: pos.y }),
+            Facing::West => pos.x.checked_sub(1).map(|x| Pos { x, y: pos.y }),
+        };
+        let Some(next) = next else { break };
+        if !room
+            .tile_at(next)
+            .is_some_and(|t| t.is_walkable() && !t.is_hazard())
+        {
+            break;
+        }
+        lane.push(next);
+        pos = next;
+    }
+    lane
+}
+
+/// Paints tiles, then the guardian danger cue, then enemies, then the sword, then the hero — so
+/// the hero is never hidden by an enemy and the sword is never hidden by a tile.
 pub fn draw_scene(buf: &mut Buffer, layout: Layout, state: &GameState, theme: Theme) {
     let block = Block::default().borders(Borders::ALL);
     Widget::render(block, layout.scene_area(), buf);
 
-    for (ty, row) in state.room().tiles.iter().enumerate() {
+    let room = state.room();
+    for (ty, row) in room.tiles.iter().enumerate() {
         for (tx, tile) in row.iter().enumerate() {
             let kind = Kind::from(*tile);
             let col = layout.tile_col(tx as u8);
             let row_y = layout.tile_row(ty as u8);
             set_tile(buf, col, row_y, kind, theme);
         }
+    }
+
+    for enemy in state.enemies.iter().filter(|e| e.alive) {
+        if let AiState::GuardianTelegraph { facing, .. } = enemy.ai {
+            for lane_pos in telegraph_lane(room, enemy.pos, facing) {
+                let col = layout.tile_col(lane_pos.x);
+                let row_y = layout.tile_row(lane_pos.y);
+                set_tile(buf, col, row_y, Kind::Telegraph, theme);
+            }
+        }
+    }
+
+    for enemy in state.enemies.iter().filter(|e| e.alive) {
+        let col = layout.tile_col(enemy.pos.x);
+        let row_y = layout.tile_row(enemy.pos.y);
+        set_tile(buf, col, row_y, Kind::from(enemy.kind), theme);
+    }
+
+    if let Some(at) = state.hero.attack.as_ref().and_then(|swing| swing.at) {
+        let col = layout.tile_col(at.x);
+        let row_y = layout.tile_row(at.y);
+        set_tile(buf, col, row_y, Kind::Sword, theme);
     }
 
     let hero_pos: Pos = state.hero.pos;

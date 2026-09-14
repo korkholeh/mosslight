@@ -1,6 +1,6 @@
 //! SplitMix64, hand-written for a cross-version-stable sequence given a seed (see DECISIONS.md).
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rng {
     state: u64,
 }
@@ -8,6 +8,11 @@ pub struct Rng {
 impl Rng {
     pub fn new(seed: u64) -> Self {
         Rng { state: seed }
+    }
+
+    /// Raw internal state, for `state_hash()`. Not part of the sequence contract.
+    pub fn raw_state(&self) -> u64 {
+        self.state
     }
 
     pub fn next_u64(&mut self) -> u64 {

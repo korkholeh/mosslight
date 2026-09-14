@@ -57,6 +57,10 @@ MainMenu --Quit--> ConfirmQuit --Cancel--> MainMenu
 Playing  --Cancel--> Paused --Cancel--> Playing
 Playing  --Help--> Help --Cancel/Help--> Playing
 Playing  --Quit--> ConfirmQuit --Cancel--> Playing
+Playing  --health reaches 0 (HeroDied)--> GameOver
+GameOver --Confirm (retry)--> Playing (state restored from the last room-entry checkpoint)
+GameOver --Cancel--> MainMenu
+GameOver --Quit--> ConfirmQuit --Cancel--> GameOver
 any mode --resize below 60x24--> TooSmall
 TooSmall --Quit (Q or Ctrl+C)--> (process exits 0, no confirmation)
 TooSmall --resize back to >=60x24-->

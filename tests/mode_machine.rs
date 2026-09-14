@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use mosslight::app::{App, ExitReason, Mode};
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
-use mosslight::game::{Action, World};
+use mosslight::game::{Action, Pos, World};
 
 fn world() -> Rc<World> {
     Rc::new(mosslight::content::load().expect("embedded world validates"))
@@ -116,4 +116,89 @@ fn help_returns_to_previous_mode() {
     assert_eq!(app.mode, Mode::Help);
     app.apply(&[Action::Cancel]);
     assert_eq!(app.mode, Mode::Playing);
+}
+
+#[test]
+fn death_opens_game_over_and_retry_restores_the_checkpoint() {
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]); // -> Playing, checkpoint taken at New Game (tick 0)
+    let checkpoint_pos = app.state.hero.pos;
+
+    app.state.hero.pos = Pos { x: 5, y: 5 };
+    app.state.hero.health_halves = 0;
+    app.tick(&[]); // tick 1: HeroDied
+    assert_eq!(app.mode, Mode::GameOver);
+    assert!(!app.simulating(), "the simulation must not run in GameOver");
+
+    let tick_at_death = app.state.tick;
+    app.tick(&[]); // must be a no-op: GameOver freezes the simulation
+    assert_eq!(app.state.tick, tick_at_death);
+
+    app.apply(&[Action::Confirm]); // retry
+    assert_eq!(app.mode, Mode::Playing);
+    assert_eq!(app.state.hero.pos, checkpoint_pos);
+    assert_eq!(app.state.hero.health_halves, 6);
+
+    app.tick(&[]);
+    assert_eq!(
+        app.state.tick, 1,
+        "tick_counter must rewind to the checkpoint's tick, not keep counting from tick_at_death"
+    );
+}
+
+#[test]
+fn retry_restores_the_room_entry_checkpoint_not_a_fresh_hero() {
+    // Round-1 review, minor: the only prior coverage of criterion 8's "room-entry" half killed
+    // the hero in the *start* room, so the `RoomEntered => checkpoint = state.clone()` branch in
+    // `App::tick` had no test, and a checkpoint taken at less than full health was
+    // indistinguishable from a freshly reset hero (both read `health_halves == 6`). Here the
+    // checkpoint is taken at a damaged, non-start room, so "restored from the checkpoint" and
+    // "reset to a fresh hero" produce different, checkable outcomes.
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]); // -> Playing, checkpoint at New Game (tick 0, full health)
+    let start_room = app.state.room;
+
+    // room.lighthouse's north door sits at (12, 0); one tile south of it is walkable floor (see
+    // `state::tests::stepping_onto_a_door_tile_...`).
+    app.state.hero.pos = Pos { x: 12, y: 1 };
+    app.state.hero.health_halves = 3;
+    app.tick(&[Action::MoveNorth]); // crosses the door -> RoomEntered -> checkpoint refreshed
+    assert_ne!(
+        app.state.room, start_room,
+        "must have actually changed rooms"
+    );
+    assert_eq!(
+        app.state.hero.health_halves, 3,
+        "crossing a door costs no health"
+    );
+    let room_after_entry = app.state.room;
+    let pos_after_entry = app.state.hero.pos;
+
+    app.state.hero.health_halves = 0;
+    app.tick(&[]); // HeroDied
+    assert_eq!(app.mode, Mode::GameOver);
+
+    app.apply(&[Action::Confirm]); // retry
+    assert_eq!(app.mode, Mode::Playing);
+    assert_eq!(
+        app.state.room, room_after_entry,
+        "retry must land in the room the hero actually entered, not the start room"
+    );
+    assert_eq!(app.state.hero.pos, pos_after_entry);
+    assert_eq!(
+        app.state.hero.health_halves, 3,
+        "retry must restore the post-entry health (3), not a fresh hero's full health (6)"
+    );
+}
+
+#[test]
+fn game_over_cancel_returns_to_the_main_menu() {
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]);
+    app.state.hero.health_halves = 0;
+    app.tick(&[]);
+    assert_eq!(app.mode, Mode::GameOver);
+
+    app.apply(&[Action::Cancel]);
+    assert_eq!(app.mode, Mode::MainMenu);
 }

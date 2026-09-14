@@ -30,6 +30,11 @@ impl Theme {
                 Kind::Door => Color::Yellow,
                 Kind::Stairs => Color::Gray,
                 Kind::Pit => Color::DarkGray,
+                Kind::Slime => Color::Green,
+                Kind::Bat => Color::Magenta,
+                Kind::Guardian => Color::Red,
+                Kind::Sword => Color::White,
+                Kind::Telegraph => Color::LightRed,
             },
         }
     }
@@ -39,7 +44,7 @@ impl Theme {
 mod tests {
     use super::*;
 
-    const ALL_KINDS: [Kind; 8] = [
+    const ALL_KINDS: [Kind; 13] = [
         Kind::Hero,
         Kind::Wall,
         Kind::Floor,
@@ -48,6 +53,11 @@ mod tests {
         Kind::Door,
         Kind::Stairs,
         Kind::Pit,
+        Kind::Slime,
+        Kind::Bat,
+        Kind::Guardian,
+        Kind::Sword,
+        Kind::Telegraph,
     ];
 
     #[test]

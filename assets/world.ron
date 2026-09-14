@@ -1,6 +1,8 @@
-// The Mosslight overworld: nine rooms in a 3x3 grid, geometry and doors only (phase 2).
-// Content, chests, NPCs, enemies and the dungeon are authored in later phases (see
-// .autodev/phases/02-content-pipeline-and-validator/PLAN.md).
+// The Mosslight overworld: nine rooms in a 3x3 grid. Geometry and doors were authored in phase 2;
+// phase 3 adds the first enemy spawns, placed to encode spec §7's pacing ramp (see
+// .autodev/phases/03-combat-enemies-determinism/PLAN.md): the start room and room.crossroads stay
+// clear, slimes sit in the middle ring, bats in the north ring, and one guardian patrols the far
+// corner. Chests, NPCs and the dungeon are authored in later phases.
 World(
     version: 1,
     start: (room: "room.lighthouse", spawn: "spawn.lighthouse.start"),
@@ -37,6 +39,18 @@ World(
                 (id: "spawn.north_ridge.south", at: (x: 12, y: 14)),
                 (id: "spawn.north_ridge.east", at: (x: 22, y: 8)),
             ],
+            enemies: [
+                (
+                    kind: Guardian,
+                    at: (x: 8, y: 5),
+                    patrol: Some([
+                        (x: 8, y: 5),
+                        (x: 16, y: 5),
+                        (x: 16, y: 10),
+                        (x: 8, y: 10),
+                    ]),
+                ),
+            ],
         ),
         (
             id: "room.stone_circle",
@@ -71,6 +85,10 @@ World(
                 (id: "spawn.stone_circle.east", at: (x: 22, y: 8)),
                 (id: "spawn.stone_circle.west", at: (x: 1, y: 8)),
             ],
+            enemies: [
+                (kind: Bat, at: (x: 9, y: 5)),
+                (kind: Bat, at: (x: 15, y: 10)),
+            ],
         ),
         (
             id: "room.old_mill",
@@ -102,6 +120,10 @@ World(
             spawns: [
                 (id: "spawn.old_mill.south", at: (x: 12, y: 14)),
                 (id: "spawn.old_mill.west", at: (x: 1, y: 8)),
+            ],
+            enemies: [
+                (kind: Bat, at: (x: 9, y: 5)),
+                (kind: Slime, at: (x: 15, y: 10)),
             ],
         ),
         (
@@ -136,6 +158,9 @@ World(
                 (id: "spawn.west_grove.north", at: (x: 12, y: 1)),
                 (id: "spawn.west_grove.south", at: (x: 12, y: 14)),
                 (id: "spawn.west_grove.east", at: (x: 22, y: 8)),
+            ],
+            enemies: [
+                (kind: Slime, at: (x: 10, y: 10)),
             ],
         ),
         (
@@ -207,6 +232,9 @@ World(
                 (id: "spawn.east_marsh.south", at: (x: 12, y: 14)),
                 (id: "spawn.east_marsh.west", at: (x: 1, y: 8)),
             ],
+            enemies: [
+                (kind: Slime, at: (x: 10, y: 10)),
+            ],
         ),
         (
             id: "room.fallen_pines",
@@ -238,6 +266,10 @@ World(
             spawns: [
                 (id: "spawn.fallen_pines.north", at: (x: 12, y: 1)),
                 (id: "spawn.fallen_pines.east", at: (x: 22, y: 8)),
+            ],
+            enemies: [
+                (kind: Slime, at: (x: 9, y: 5)),
+                (kind: Bat, at: (x: 15, y: 10)),
             ],
         ),
         (
@@ -305,6 +337,9 @@ World(
             spawns: [
                 (id: "spawn.south_shore.north", at: (x: 12, y: 1)),
                 (id: "spawn.south_shore.west", at: (x: 1, y: 8)),
+            ],
+            enemies: [
+                (kind: Slime, at: (x: 10, y: 10)),
             ],
         ),
     ],

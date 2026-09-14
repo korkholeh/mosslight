@@ -1,9 +1,10 @@
 //! The single glyph table (spec §4). Glyphs never change per theme — only colour does
 //! (see `theme.rs`), so a monochrome theme cannot lose information.
 
-use crate::game::Tile;
+use crate::game::{EnemyKind, Tile};
 
-/// Everything the scene can draw a glyph for: world tiles plus the hero.
+/// Everything the scene can draw a glyph for: world tiles, the hero, enemies, and the sword/danger
+/// projections (spec §6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Hero,
@@ -14,6 +15,11 @@ pub enum Kind {
     Door,
     Stairs,
     Pit,
+    Slime,
+    Bat,
+    Guardian,
+    Sword,
+    Telegraph,
 }
 
 impl From<Tile> for Kind {
@@ -32,6 +38,16 @@ impl From<Tile> for Kind {
     }
 }
 
+impl From<EnemyKind> for Kind {
+    fn from(k: EnemyKind) -> Self {
+        match k {
+            EnemyKind::Slime => Kind::Slime,
+            EnemyKind::Bat => Kind::Bat,
+            EnemyKind::Guardian => Kind::Guardian,
+        }
+    }
+}
+
 /// The ASCII glyph for a kind (spec §4/§7 table). Unicode is a phase-6 enhancement; this phase
 /// always renders this table regardless of `Config::glyphs`.
 pub fn glyph(kind: Kind) -> char {
@@ -44,6 +60,11 @@ pub fn glyph(kind: Kind) -> char {
         Kind::Door => '+',
         Kind::Stairs => '>',
         Kind::Pit => 'v',
+        Kind::Slime => 'o',
+        Kind::Bat => '^',
+        Kind::Guardian => '&',
+        Kind::Sword => '/',
+        Kind::Telegraph => '!',
     }
 }
 
@@ -51,7 +72,7 @@ pub fn glyph(kind: Kind) -> char {
 mod tests {
     use super::*;
 
-    const ALL_KINDS: [Kind; 8] = [
+    const ALL_KINDS: [Kind; 13] = [
         Kind::Hero,
         Kind::Wall,
         Kind::Floor,
@@ -60,6 +81,11 @@ mod tests {
         Kind::Door,
         Kind::Stairs,
         Kind::Pit,
+        Kind::Slime,
+        Kind::Bat,
+        Kind::Guardian,
+        Kind::Sword,
+        Kind::Telegraph,
     ];
 
     #[test]

@@ -4,6 +4,14 @@ All notable user-visible changes to Mosslight are recorded here.
 
 ## Unreleased
 
+- Combat: the hero can swing a sword (J or Space) that hits exactly the tile they face, on a
+  cooldown, for a short active window. Slimes, bats and a guardian now populate six of the nine
+  overworld rooms (the starting lighthouse and the crossroads stay clear), each with its own
+  patrol/chase/dart/telegraph-and-dash behaviour. Contact with a live enemy costs half a heart and
+  knocks the hero back, with a brief invulnerability window afterward. A guardian only takes sword
+  damage while recovering from its dash — hits at any other time are deflected.
+- Falling to zero health opens a "You fell" screen; Enter retries from the last room the hero
+  entered (health included), Esc returns to the main menu.
 - The overworld is now real content: nine hand-authored rooms in a 3x3 grid
   (`assets/world.ron`), connected by 24 two-way doors with no dead ends. New Game drops the hero
   into the lighthouse; walking through a door moves the hero into the neighboring room at its

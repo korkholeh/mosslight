@@ -33,9 +33,12 @@ pub fn map_key(mode: Mode, key: KeyEvent) -> Option<Action> {
         KeyCode::Char('q') | KeyCode::Char('Q') => Some(Action::Quit),
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Enter | KeyCode::Char('e') | KeyCode::Char('E') => match mode {
-            Mode::MainMenu | Mode::Paused | Mode::ConfirmQuit | Mode::Help | Mode::TooSmall => {
-                Some(Action::Confirm)
-            }
+            Mode::MainMenu
+            | Mode::Paused
+            | Mode::ConfirmQuit
+            | Mode::Help
+            | Mode::TooSmall
+            | Mode::GameOver => Some(Action::Confirm),
             Mode::Playing => Some(Action::Interact),
         },
         _ => None,

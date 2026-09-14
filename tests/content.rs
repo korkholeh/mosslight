@@ -86,6 +86,18 @@ fn spawn_in_wall_is_rejected() {
 }
 
 #[test]
+fn enemy_spawn_in_wall_is_rejected() {
+    let errors = content::parse(&fixture("broken_enemy_spawn.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::EnemySpawnNotWalkable { room, .. } if room == "room.a"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn duplicate_id_is_rejected() {
     let errors = content::parse(&fixture("broken_duplicate_id.ron")).expect_err("must be rejected");
     assert!(

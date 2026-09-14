@@ -106,11 +106,11 @@ pub enum PuzzleKind {
     Switches,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub enum EnemyKind {
     Slime,
-    Bandit,
-    Wisp,
+    Bat,
+    Guardian,
 }
 
 fn default_two_way() -> bool {

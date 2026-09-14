@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use mosslight::app::App;
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
-use mosslight::game::{Action, World};
+use mosslight::game::{Action, AiState, Enemy, EnemyId, EnemyKind, Facing, Pos, Swing, World};
 use mosslight::render::{self, Theme};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
@@ -116,6 +116,79 @@ fn draw_never_panics_on_a_too_small_frame_even_without_a_prior_resize() {
             "expected the too-small notice at {w}x{h}, got:\n{text}"
         );
     }
+}
+
+fn combat_scene_setup(app: &mut App) {
+    app.apply(&[Action::Confirm]); // New Game -> Playing
+    app.state.enemies = vec![
+        Enemy {
+            id: EnemyId(0),
+            kind: EnemyKind::Slime,
+            pos: Pos { x: 5, y: 5 },
+            facing: Facing::South,
+            hp: 2,
+            ai: AiState::SlimeIdle { until: 1000 },
+            patrol: Vec::new(),
+            move_ready_at: 1000,
+            alive: true,
+        },
+        Enemy {
+            id: EnemyId(1),
+            kind: EnemyKind::Guardian,
+            pos: Pos { x: 8, y: 5 },
+            facing: Facing::East,
+            hp: 4,
+            ai: AiState::GuardianTelegraph {
+                until: 1000,
+                facing: Facing::East,
+            },
+            patrol: Vec::new(),
+            move_ready_at: 1000,
+            alive: true,
+        },
+    ];
+    app.state.hero.attack = Some(Swing {
+        started_at: 0,
+        facing: Facing::South,
+        at: Some(Pos { x: 12, y: 9 }),
+        hit: Vec::new(),
+    });
+}
+
+#[test]
+fn enemy_sword_and_telegraph_glyphs_land_on_expected_cells_60x24() {
+    let buf = render_at(60, 24, combat_scene_setup);
+
+    // Slime glyph at tile (5, 5): col = 5 + 1 + 2*5 = 16, row = 1 + 2 + 5 = 8.
+    assert_eq!(cell(&buf, 16, 8), "o");
+    // Guardian glyph at tile (8, 5): col = 22, row = 8. Drawn after the telegraph lane, so its
+    // own tile is never hidden by the danger cue.
+    assert_eq!(cell(&buf, 22, 8), "&");
+    // The telegraph lane starts one tile east of the guardian, at (9, 5): col = 24, row = 8.
+    assert_eq!(cell(&buf, 24, 8), "!");
+    // Sword glyph at the swing's target tile (12, 9): col = 30, row = 12.
+    assert_eq!(cell(&buf, 30, 12), "/");
+}
+
+#[test]
+fn scene_renders_identical_characters_under_every_theme() {
+    let mut app = App::new(&cfg(), world());
+    combat_scene_setup(&mut app);
+    app.on_resize(60, 24);
+
+    let texts: Vec<String> = [ThemeName::Mono, ThemeName::Gameboy, ThemeName::Ansi]
+        .into_iter()
+        .map(|theme_name| {
+            let theme = Theme::new(theme_name);
+            let backend = TestBackend::new(60, 24);
+            let mut term = Terminal::new(backend).unwrap();
+            term.draw(|f| render::draw(f, &app, theme)).unwrap();
+            buffer_text(term.backend().buffer())
+        })
+        .collect();
+
+    assert_eq!(texts[0], texts[1], "mono vs gameboy glyphs differ");
+    assert_eq!(texts[1], texts[2], "gameboy vs ansi glyphs differ");
 }
 
 #[test]

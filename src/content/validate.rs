@@ -32,6 +32,7 @@ pub(crate) fn collect_errors(world: &World, check_reachability: bool) -> Vec<Con
     errors.extend(check_spawns(world));
     errors.extend(check_door_geometry(world));
     errors.extend(check_reciprocity(world));
+    errors.extend(check_enemy_spawns(world));
     if check_reachability {
         errors.extend(check_reachability_and_route(world));
     }
@@ -186,6 +187,38 @@ fn check_spawns(world: &World) -> Vec<ContentError> {
         }
     }
     errors
+}
+
+/// Every enemy spawn position, and every patrol waypoint, must be in bounds, walkable, not a
+/// hazard and not a door tile — the same walkability bar a hero spawn has to clear.
+fn check_enemy_spawns(world: &World) -> Vec<ContentError> {
+    let mut errors = Vec::new();
+    for room in &world.rooms {
+        for enemy in &room.enemies {
+            if !spawn_walkable(room, enemy.at) {
+                errors.push(ContentError::EnemySpawnNotWalkable {
+                    room: room.id.clone(),
+                    at: enemy.at,
+                });
+            }
+            for &waypoint in enemy.patrol.iter().flatten() {
+                if !spawn_walkable(room, waypoint) {
+                    errors.push(ContentError::EnemyPatrolInvalid {
+                        room: room.id.clone(),
+                        at: waypoint,
+                    });
+                }
+            }
+        }
+    }
+    errors
+}
+
+fn spawn_walkable(room: &Room, at: Pos) -> bool {
+    in_bounds(at)
+        && room
+            .tile_at(at)
+            .is_some_and(|t| t.is_walkable() && !t.is_hazard() && t != Tile::Door)
 }
 
 fn check_door_geometry(world: &World) -> Vec<ContentError> {

@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use crate::config::Config;
-use crate::game::{update, Action, GameState, Tick, World};
+use crate::game::{update, Action, GameEvent, GameState, Tick, World};
 use crate::input::{coalesce, drop_pending};
 
 pub const MIN_COLS: u16 = 60;
@@ -17,6 +17,7 @@ pub enum Mode {
     ConfirmQuit,
     Help,
     TooSmall,
+    GameOver,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +57,10 @@ pub struct App {
     pub mode: Mode,
     prev_mode: Mode,
     pub state: GameState,
+    /// The state as of the last room entry (New Game counts as entering the start room). Retry
+    /// from `Mode::GameOver` restores this rather than the save file — phase 6 repoints the
+    /// restore at the save and keeps this rewind rule (see DECISIONS.md).
+    checkpoint: GameState,
     pub menu: MenuCursor,
     pub message: String,
     pub size: (u16, u16),
@@ -72,10 +77,13 @@ impl App {
     /// no unwrap-family call on the content path here (CLAUDE.md) and no risk of gameplay running
     /// against a different world than the one the preflight checked.
     pub fn new(cfg: &Config, world: Rc<World>) -> Self {
+        let state = GameState::new(cfg.seed, Rc::clone(&world));
+        let checkpoint = state.clone();
         App {
             mode: Mode::MainMenu,
             prev_mode: Mode::MainMenu,
-            state: GameState::new(cfg.seed, Rc::clone(&world)),
+            state,
+            checkpoint,
             menu: MenuCursor::NewGame,
             message: String::new(),
             size: (MIN_COLS, MIN_ROWS),
@@ -125,6 +133,7 @@ impl App {
                 Mode::ConfirmQuit => self.apply_confirm_quit(action),
                 Mode::Help => self.apply_help(action),
                 Mode::TooSmall => self.apply_too_small(action),
+                Mode::GameOver => self.apply_game_over(action),
             }
             if mode_before != Mode::Playing && self.mode == Mode::Playing {
                 drop_pending(&mut sim_actions);
@@ -145,6 +154,7 @@ impl App {
                 }
                 MenuCursor::NewGame => {
                     self.state = GameState::new(self.seed, Rc::clone(&self.world));
+                    self.checkpoint = self.state.clone();
                     self.set_mode(Mode::Playing);
                 }
                 MenuCursor::Help => self.set_mode(Mode::Help),
@@ -189,6 +199,24 @@ impl App {
         }
     }
 
+    /// `Confirm` retries from the last room-entry checkpoint (health included) and rewinds
+    /// `tick_counter` to match — every simulation timer is an absolute `Tick`, so resuming at the
+    /// checkpoint's tick while the counter kept advancing would fire every cooldown,
+    /// invulnerability window and AI timer at once (see DECISIONS.md). `Cancel` returns to the
+    /// main menu rather than to `Playing`, since the run that just ended is over.
+    fn apply_game_over(&mut self, action: Action) {
+        match action {
+            Action::Confirm => {
+                self.state = self.checkpoint.clone();
+                self.tick_counter = self.state.tick;
+                self.set_mode(Mode::Playing);
+            }
+            Action::Cancel => self.set_mode(Mode::MainMenu),
+            Action::Quit => self.set_mode(Mode::ConfirmQuit),
+            _ => {}
+        }
+    }
+
     /// A confirm-quit dialog cannot be rendered at a too-small size, so `Quit` (including the
     /// Ctrl+C mapping) quits directly instead of routing through `ConfirmQuit` — spec §11 requires
     /// Ctrl+C to be a graceful-shutdown request in every mode, and a shrunk terminal must not strand
@@ -213,6 +241,15 @@ impl App {
         let events = update(&mut self.state, actions, self.tick_counter);
         let changed = !events.is_empty();
         self.dirty |= changed;
+
+        for event in &events {
+            match event {
+                GameEvent::RoomEntered { .. } => self.checkpoint = self.state.clone(),
+                GameEvent::HeroDied => self.set_mode(Mode::GameOver),
+                _ => {}
+            }
+        }
+
         changed
     }
 

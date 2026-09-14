@@ -42,6 +42,20 @@ plates. This is roughly 20 mutable entities at peak.
 - **Storing the current room's mutable objects inside `World`** — rejected: it would blur immutable content
   and mutable progress, which is the distinction the save format depends on.
 
+## Amendment (phase 3, 2026-09-14)
+
+`Enemy::ai` is implemented as one flat `AiState` enum (`SlimeIdle`, `SlimeWander`, `SlimeChase`,
+`BatDart`, `BatRest`, `GuardianPatrol`, `GuardianTelegraph`, `GuardianDash`, `GuardianRecover`)
+rather than the per-kind nested enums sketched above (`Slime: Idle|Chase`, `Bat: Dart|Rest`, ...).
+The core decision this ADR makes — plain structs and enums, no ECS, `Vec<Enemy>` iteration order as
+the tie-break — is unchanged; only the shape of `AiState` differs from the sketch. A flat enum keeps
+every transition of every kind in one `match` in `game/ai.rs`, which is the "readable state
+machines" property §6 asks for and this ADR's own rejection of trait objects already argues for —
+nesting would add an indirection at every match site for no benefit at this scale. See
+`.autodev/DECISIONS.md`, "PLAN phase 03", for the logged alternatives. `Boss` is not yet a variant
+of anything — it is out of scope until phase 5, and adding it is expected to follow the same flat
+naming convention (`BossPhaseOne`, `BossStunned`, ...).
+
 ## Consequences
 
 - Any simulation test is "build a `GameState`, call `update` with actions, assert fields" — no world

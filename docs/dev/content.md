@@ -108,6 +108,12 @@ collects every violation of the spec §7 list rather than stopping at the first:
 `Flag`-locked door is always reported `LockNeverUnlockable` — correct for now, since nothing can
 ever open one.
 
+- **Enemy spawns** (`check_enemy_spawns`, phase 3): every `EnemySpawn.at` and every waypoint in its
+  optional `patrol` must be in bounds, walkable, not a hazard tile and not a `Tile::Door`, else
+  `ContentError::EnemySpawnNotWalkable` / `EnemyPatrolInvalid`. `tests/fixtures/broken_enemy_spawn.ron`
+  (a spawn placed inside a wall) proves the check rejects. `EnemyKind` is `Slime | Bat | Guardian`
+  (`Boss` is not a content-authorable kind — it belongs to the phase-5 boss arena).
+
 ## Reading validator output
 
 Each `ContentError` prints as one line naming the offending id (`content::report`, joined

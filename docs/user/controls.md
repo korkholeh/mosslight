@@ -9,12 +9,12 @@ protocols are used anywhere, so this works identically over a plain SSH session.
 | Attack (sword) | J or Space | Playing |
 | Use lantern | K | Playing |
 | Interact | E or Enter | Playing |
-| Confirm (menu selection) | E or Enter | Main menu, Paused, Confirm-quit, Help |
+| Confirm (menu selection, or retry after death) | E or Enter | Main menu, Paused, Confirm-quit, Help, Game over |
 | Map | M | Playing |
 | Inventory | I | Playing |
-| Pause / back | Esc | Playing (pauses), Paused (resumes), Help (closes), Confirm-quit (cancels) |
+| Pause / back | Esc | Playing (pauses), Paused (resumes), Help (closes), Confirm-quit (cancels), Game over (returns to main menu) |
 | Help | ? | Main menu, Playing, Paused |
-| Quit (asks for confirmation) | Q or Ctrl+C | Main menu, Playing, Paused |
+| Quit (asks for confirmation) | Q or Ctrl+C | Main menu, Playing, Paused, Game over |
 | Quit immediately (terminal too small to show a confirmation) | Q or Ctrl+C | Below the 60x24 minimum size |
 
 Notes:
@@ -29,3 +29,6 @@ Notes:
   closed it, so a movement key pressed while a menu was open cannot fire the instant it closes.
 - Main menu items: **Continue** (present, but reports "no save yet" until phase 6 adds saving),
   **New Game**, **Help**, **Quit**.
+- Falling to zero health opens a "You fell" screen. Confirm retries from the last room the hero
+  entered, with the health they had on entering it; Esc abandons the run and returns to the main
+  menu.
