@@ -10,7 +10,7 @@ use ratatui::crossterm::event::{self, Event};
 use ratatui::crossterm::tty::IsTty;
 use ratatui::Terminal;
 
-use mosslight::app::{advance_iteration, App, Pacer};
+use mosslight::app::{advance_iteration, draw_due, App, Pacer};
 use mosslight::config::{Config, Env, OutputStream};
 use mosslight::content;
 use mosslight::game::tuning::INPUT_EVENT_HARD_CAP;
@@ -184,7 +184,7 @@ fn run(config: &Config, diagnostics: &mut Diagnostics, world: World) -> i32 {
             diagnostics.push(line);
         }
 
-        if due.draw && app.take_dirty() {
+        if draw_due(&mut app, due) {
             let draw_result = term.draw(|frame| render::draw(frame, &app, theme));
             if let Err(e) = draw_result {
                 diagnostics.push(format!("write error: {e}"));

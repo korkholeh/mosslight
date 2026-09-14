@@ -53,7 +53,9 @@ ssh -t user@host 'mosslight --ascii --fps 10'
 
 The `-t` flag forces a PTY, which the game requires. Everything runs on the remote host; SSH only
 carries keystrokes and terminal output. If the connection should survive a dropped SSH session,
-start the game inside `tmux` or `screen` on the remote host first.
+start the game inside `tmux` or `screen` on the remote host first. Full detail — `--fps` on a slow
+link, `TERM` and 256-colour behaviour inside tmux, and what was and was not actually measured or
+tested — is in `docs/user/ssh.md`.
 
 ## If the terminal looks broken after a crash
 
@@ -73,8 +75,10 @@ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings &&
 This is the gate every phase must pass; CI (`.github/workflows/ci.yml`) runs it on
 `ubuntu-latest` and `macos-latest`. See `docs/dev/development.md` for setup/build/debug,
 `docs/dev/testing.md` for the test layers, `docs/dev/loop-and-modes.md` for the loop and
-mode-machine architecture, `docs/dev/troubleshooting.md` for symptom-to-fix, and
-`.autodev/ARCHITECTURE.md` for the full module layout and design rationale.
+mode-machine architecture, `docs/dev/architecture.md` for a full summary of the module map, the
+pure-core boundary, the tick model and the run-length model, `docs/dev/troubleshooting.md` for
+symptom-to-fix, `docs/dev/verification-report.md` for what was actually checked and how, and
+`.autodev/ARCHITECTURE.md` for the original design rationale.
 
 `scripts/terminal-restore-check.sh` drives a real PTY (via `expect`) through the normal-exit,
 `--debug-panic`, and live-resize paths and prints `stty -a` before/after each, for manually
@@ -83,14 +87,25 @@ misbehaves in a sandboxed environment.
 
 See `CHANGELOG.md` for user-visible changes.
 
-## Known limitations (phase 6)
+## Shipped state (phase 7 — final)
 
-The game is completable end to end and now saves: New Game through the nine-room overworld (sword,
-lantern, three NPCs, chests, secrets, a step-plate puzzle), into the six-room dungeon behind the
-marsh's lantern-locked door (two small keys, a block-on-plates puzzle, a torch-sequence puzzle,
-guardians), through a two-phase telegraphed boss, and back to the lighthouse's beacon to relight it
-and win. Progress persists in one save slot, written automatically at four points plus a manual save
-from the pause screen; `gameboy`, `ansi` and `mono` are three real, visually distinct palettes.
-`--unicode` has been withdrawn (see `docs/user/cli.md`) rather than shipped half-populated. Not yet
-done: the balance/measurement pass and the final documentation/verification pass. See
-`.autodev/ROADMAP.md` for what phase 7 adds, and `.autodev/PROGRESS.md` for current status.
+The game is completable end to end and saves progress: New Game through the nine-room overworld
+(sword, lantern, three NPCs, chests, four secrets including two heart containers, a step-plate
+puzzle), into the six-room dungeon behind the marsh's lantern-locked door (two small keys, a
+block-on-plates puzzle, a torch-sequence puzzle, guardians), through a two-phase telegraphed boss,
+and back to the lighthouse's beacon to relight it and win. An itemised estimator
+(`src/game/balance.rs`, `tests/balance.rs`) ties the target 30-45 minute first playthrough to the
+tuned content and simulation constants rather than leaving it an untested intention — the tuned
+world lands at roughly 33 minutes. Progress persists in one save slot, written automatically at
+four points plus a manual save from the pause screen; `gameboy`, `ansi` and `mono` are three real,
+visually distinct palettes. `--unicode` has been withdrawn (see `docs/user/cli.md`) rather than
+shipped half-populated.
+
+Terminal output volume and CPU/RSS are both measured (≈30.5 KB/min during active play and exactly 0
+bytes while paused; CPU near-zero in both the play and pause windows via `scripts/measure-cpu.sh`),
+not just assumed. See `docs/dev/verification-report.md` for the numbers, the host they were measured
+on, and — just as importantly — an explicit list of what was **not** verified (Linux and a real
+networked SSH session are CI-only/untested here; the ~150 ms RTT playability check, Intel macOS and
+aarch64 Linux were never reachable from this development host). `HANDOFF.md` lists what a following
+session should look at first, including the weakest claim in this build: the run-length estimator's
+human-behaviour parameters are a reasoned model, not a measurement from real players.

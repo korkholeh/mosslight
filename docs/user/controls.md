@@ -66,3 +66,5 @@ Notes:
 - Once the hero carries the ancient ember, facing the lighthouse's beacon (`*`) and pressing
   Interact relights it and ends the run. Without the ember, the beacon only reports that it is
   cold.
+
+Running over SSH or under tmux/screen: see `docs/user/ssh.md`.

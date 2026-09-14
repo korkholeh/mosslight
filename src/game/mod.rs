@@ -7,9 +7,14 @@ pub mod tuning;
 pub mod world;
 
 pub mod ai;
+pub mod balance;
 pub mod combat;
 pub mod puzzles;
 
+pub use balance::{
+    boss_fight_ticks, engage_ticks, estimate_first_playthrough, RunEstimate, TARGET_MAX_TICKS,
+    TARGET_MIN_TICKS,
+};
 pub use entities::{
     AiState, BossPattern, DialogueState, Enemy, EnemyId, Facing, Hero, ObjectRef, Pos, Swing,
 };

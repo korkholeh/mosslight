@@ -4,6 +4,15 @@ All notable user-visible changes to Mosslight are recorded here.
 
 ## Unreleased
 
+- Balance pass: the boss now takes 12 sword hits across its two phases (up from 8), and a handful
+  of additional slime/bat/guardian spawns join the overworld and dungeon. A first playthrough now
+  estimates at roughly 33 minutes, with real margin from the 30-minute floor; see
+  `docs/dev/architecture.md`'s run-length model section for how that target is measured.
+- A second heart container (a new secret chest in the west grove) makes the documented 5-heart
+  maximum actually reachable in a single playthrough — previously only one existed, capping health
+  at 4 hearts.
+- New `docs/user/ssh.md`: `--fps` on a slow link, `TERM`/256-colour behaviour under tmux, the
+  measured terminal output volume, and what was and was not actually verified over a real network.
 - Progress now survives quitting the game. One save slot, written automatically on entering a new
   room, picking up an important item, solving a puzzle, or defeating the boss, plus a manual save
   from the pause screen (Enter/E) that is refused during combat. A save is never written at zero

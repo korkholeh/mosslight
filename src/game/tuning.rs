@@ -98,10 +98,12 @@ pub const GUARDIAN_RECOVER_TICKS: u64 = 30;
 /// `tests/ai.rs` to assert liveness.
 pub const MAX_STALL_TICKS: u64 = 300;
 
-/// Boss hit points: eight sword hits total across both phases.
-pub const BOSS_HP: u8 = 8;
+/// Boss hit points: twelve sword hits total across both phases (raised from 8 in the phase-7
+/// balance pass — see DECISIONS.md — to move the estimated playthrough length off the bottom of
+/// the §1 30-45 minute band).
+pub const BOSS_HP: u8 = 12;
 /// HP at or below which the boss enters phase two.
-pub const BOSS_PHASE_TWO_HP: u8 = 4;
+pub const BOSS_PHASE_TWO_HP: u8 = 5;
 /// Phase-one stalk length before committing to an attack: 60 ticks = 2000 ms.
 pub const BOSS_P1_STALK_TICKS: u64 = 60;
 /// Phase-two stalk length: 45 ticks = 1500 ms, faster-paced than phase one.

@@ -149,6 +149,7 @@ World(
             enemies: [
                 (kind: Bat, at: (x: 9, y: 5)),
                 (kind: Slime, at: (x: 15, y: 10)),
+                (kind: Bat, at: (x: 3, y: 13)),
             ],
             plates: [
                 (id: "plate.mill1", at: (x: 5, y: 9)),
@@ -175,8 +176,8 @@ World(
             map_index: Some((0, 1)),
             rows: [
                 "############+###########",
-                "#......................#",
-                "#......................#",
+                "#...................?.##",
+                "#....................#.#",
                 "#..~~..................#",
                 "#..~~..................#",
                 "#......................#",
@@ -203,6 +204,12 @@ World(
             ],
             enemies: [
                 (kind: Slime, at: (x: 10, y: 10)),
+            ],
+            torches: [
+                (id: "torch.grove", at: (x: 18, y: 1), reveals: [(x: 20, y: 1)]),
+            ],
+            chests: [
+                (id: "chest.grove_heart", at: (x: 21, y: 1), contains: HeartContainer, secret: true),
             ],
         ),
         (
@@ -281,6 +288,7 @@ World(
             ],
             enemies: [
                 (kind: Slime, at: (x: 10, y: 10)),
+                (kind: Slime, at: (x: 20, y: 12)),
             ],
             npcs: [
                 (
@@ -486,6 +494,7 @@ World(
                 (kind: Slime, at: (x: 8, y: 5)),
                 (kind: Slime, at: (x: 15, y: 10)),
                 (kind: Bat, at: (x: 10, y: 11)),
+                (kind: Slime, at: (x: 20, y: 4)),
             ],
             chests: [
                 (id: "chest.hall_key", at: (x: 5, y: 10), contains: SmallKey),
@@ -523,6 +532,7 @@ World(
             ],
             enemies: [
                 (kind: Slime, at: (x: 7, y: 4)),
+                (kind: Bat, at: (x: 20, y: 4)),
             ],
             blocks: [
                 (id: "block.chamber", at: (x: 9, y: 8)),
@@ -575,6 +585,7 @@ World(
             enemies: [
                 (kind: Bat, at: (x: 8, y: 10)),
                 (kind: Bat, at: (x: 16, y: 10)),
+                (kind: Slime, at: (x: 3, y: 12)),
             ],
             torches: [
                 (id: "torch.vault_moss", at: (x: 5, y: 5)),
@@ -643,6 +654,16 @@ World(
                         (x: 16, y: 12),
                         (x: 16, y: 3),
                         (x: 10, y: 3),
+                    ]),
+                ),
+                (
+                    kind: Guardian,
+                    at: (x: 20, y: 3),
+                    patrol: Some([
+                        (x: 20, y: 3),
+                        (x: 20, y: 13),
+                        (x: 3, y: 13),
+                        (x: 3, y: 3),
                     ]),
                 ),
             ],

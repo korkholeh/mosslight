@@ -342,7 +342,10 @@ fn three_secrets_exist_and_are_off_the_main_route() {
                 .map(|c| (r.id.clone(), c.id.clone(), c.contains.clone()))
         })
         .collect();
-    assert_eq!(secrets.len(), 3, "{secrets:?}");
+    assert!(
+        secrets.len() >= 3,
+        "spec §2 requires at least 3 secrets: {secrets:?}"
+    );
 
     for (room_id, chest_id, reward) in &secrets {
         assert!(

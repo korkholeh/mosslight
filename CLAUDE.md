@@ -31,9 +31,12 @@ Dependencies are fixed: `ratatui 0.30.2`, `clap 4.6`, `serde 1`, `ron 0.12`, `se
 There is **no separate e2e layer**. The headless start-to-victory playthrough and the scene-placement
 checks are ordinary Rust tests under `tests/`, run by `cargo test`. Do not add a PTY harness.
 
-`scripts/terminal-restore-check.sh` is a manual, host-run script (not part of `cargo test`) that drives
-the release binary through a real PTY via `expect` and prints `stty -a` before/after, for confirming
-terminal restoration by hand. It is not part of any automated gate.
+`scripts/terminal-restore-check.sh`, `scripts/manual-checks.sh` and `scripts/measure-cpu.sh` are
+manual, host-run scripts (not part of `cargo test`) that drive the release binary through a real PTY
+via `expect`: `stty -a` before/after for terminal restoration, the spec §13 manual-check list, and
+%cpu/RSS sampling across a minute of play and a minute of pause, respectively. None is part of any
+automated gate; see `docs/dev/testing.md` for how to run them and
+`docs/dev/verification-report.md` for the last recorded results.
 
 When running by hand, always pass `--save-dir /tmp/mosslight-scratch` so a manual run cannot clobber a real
 save. The game refuses to start without a TTY, so it cannot be driven from a pipe — use `TestBackend`.
@@ -49,6 +52,7 @@ src/input.rs    KeyEvent -> Action, per-mode maps, coalescing, event cap
 src/app.rs      screen/mode machine, pause semantics, GameEvent -> effect, autosave triggers
 src/render/     pure projection: theme.rs tiles.rs hud.rs scene.rs overlays.rs
 src/game/       pure simulation: state.rs world.rs entities.rs combat.rs ai.rs puzzles.rs tuning.rs rng.rs
+                balance.rs (run-length estimate, never called by update)
 src/content/    RON schema, include_str! loader, validator
 src/save.rs     versioned JSON, path resolution, atomic write, backup rotation
 assets/world.ron  the entire world, embedded at compile time
@@ -69,9 +73,11 @@ tests/          integration tests
 - **Never `unwrap`** on the save path or the content path; both return explicit outcome enums.
 - Themes may change colour only — glyphs are identical in every theme, so monochrome cannot regress.
 - No log line may reach the screen: diagnostics buffer and flush to stderr after the guard drops.
-- Do not clear the whole screen per frame and do not draw when nothing changed.
+- Do not clear the whole screen per frame and do not draw when nothing changed — `app::draw_due` is
+  the one draw gate; every caller (`main.rs`, tests, the metrics harness) goes through it.
 - Do not claim an environment was verified unless it was actually run.
 - English everywhere: code, identifiers, comments, commit messages, docs.
 
 Autodev docs: .autodev/ (ARCHITECTURE.md, RISKS.md, ROADMAP.md, PROGRESS.md, DECISIONS.md, phases/NN-*/PLAN.md)
-Project docs: docs/dev/ (development, testing, loop-and-modes, troubleshooting, adr/), docs/user/ (cli, controls), CHANGELOG.md
+Project docs: docs/dev/ (architecture, development, testing, loop-and-modes, troubleshooting,
+verification-report, adr/), docs/user/ (cli, controls, ssh), CHANGELOG.md, HANDOFF.md
