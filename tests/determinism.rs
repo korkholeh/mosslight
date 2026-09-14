@@ -9,6 +9,7 @@ use mosslight::app::{advance_iteration, App, Pacer};
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
 use mosslight::game::rng::Rng;
 use mosslight::game::{state_hash, tuning, update, Action, GameState, Pos, World};
+use mosslight::save::MemorySaveIo;
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 const SEQUENCE_LEN: usize = 2000;
@@ -131,7 +132,7 @@ fn cfg(fps: Fps, seed: u64) -> Config {
 /// `state_hash()` after every tick — so the whole trace, not just the final state, can be compared
 /// across fps values.
 fn app_hash_trace(fps: Fps, seed: u64, actions: &[Action]) -> Vec<u64> {
-    let mut app = App::new(&cfg(fps, seed), world());
+    let mut app = App::new(&cfg(fps, seed), world(), Box::new(MemorySaveIo::new()));
     app.apply(&[Action::Confirm]); // -> Playing
                                    // Phase 4 gates `Attack` on `has_sword`; established directly, see `hash_trace` above.
     app.state.hero.has_sword = true;

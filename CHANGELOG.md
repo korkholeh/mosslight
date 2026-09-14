@@ -4,6 +4,25 @@ All notable user-visible changes to Mosslight are recorded here.
 
 ## Unreleased
 
+- Progress now survives quitting the game. One save slot, written automatically on entering a new
+  room, picking up an important item, solving a puzzle, or defeating the boss, plus a manual save
+  from the pause screen (Enter/E) that is refused during combat. A save is never written at zero
+  health, so falling never overwrites the last point the game actually saved, and retrying after
+  death restores that point instead of a checkpoint held only in memory. The main menu's
+  `Continue` reflects the slot's state (no save yet / present / damaged / from a newer version);
+  starting `New Game` over an existing run now asks for confirmation first. A damaged save offers
+  restoring the retained backup or starting fresh; a save from a newer build is never overwritten
+  by an older one. See `docs/user/cli.md` for where the save file lives on each platform and what
+  each of these situations looks like.
+- Three real colour themes: `gameboy` (four indexed greens), `ansi` (the 16-colour fallback for a
+  terminal without indexed-colour support), and `mono` (a full monochrome mode). `--color never`
+  and a non-empty `NO_COLOR` now stop colour reaching the terminal at all, not just in how flags
+  are read. Glyphs never change between themes, so monochrome play never loses information a
+  colour theme has.
+- `--unicode` is withdrawn: every Unicode glyph that would improve on ASCII risks silently
+  doubling a tile's on-screen width under some locales/terminal settings, which would shear the
+  fixed tile grid. ASCII is the one glyph table; `--ascii` remains as an explicit affirmation of
+  it.
 - The game is now completable end to end. Behind the marsh's lantern-locked door, a six-room
   dungeon (a safe vestibule, a flooded hall, a block-puzzle chamber, a torch-sequence vault, a
   guardian-patrolled walk, and a boss arena) leads to a two-phase telegraphed boss. Defeating it

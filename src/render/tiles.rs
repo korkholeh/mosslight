@@ -62,8 +62,9 @@ impl From<EnemyKind> for Kind {
     }
 }
 
-/// The ASCII glyph for a kind (spec §4/§7 table). Unicode is a phase-6 enhancement; this phase
-/// always renders this table regardless of `Config::glyphs`.
+/// The ASCII glyph for a kind (spec §4/§7 table) — the only glyph table there is: `--unicode` was
+/// withdrawn (see `docs/user/cli.md` and DECISIONS.md), so `GlyphSet` has no other variant for a
+/// second table to exist under, and this renders regardless of `Config::glyphs`.
 pub fn glyph(kind: Kind) -> char {
     match kind {
         Kind::Hero => '@',

@@ -1,15 +1,18 @@
 //! Scene placement, HUD/hint rows, the too-small notice and the main-menu overlay, rendered
 //! through `TestBackend` — the deterministic equivalent of a screenshot (spec §4, §13).
 
+mod common;
+
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use mosslight::app::{App, Mode};
+use mosslight::app::{App, MenuCursor, Mode};
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
 use mosslight::game::{
     Action, AiState, BossPattern, Enemy, EnemyId, EnemyKind, Facing, ObjectRef, Pos, Swing, World,
 };
 use mosslight::render::{self, Theme};
+use mosslight::save::{FileSaveIo, MemorySaveIo};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::Terminal;
@@ -48,10 +51,10 @@ fn buffer_text(buf: &Buffer) -> String {
 }
 
 fn render_at(w: u16, h: u16, setup: impl FnOnce(&mut App)) -> Buffer {
-    let mut app = App::new(&cfg(), world());
+    let mut app = App::new(&cfg(), world(), Box::new(MemorySaveIo::new()));
     setup(&mut app);
     app.on_resize(w, h);
-    let theme = Theme::new(cfg().theme);
+    let theme = Theme::new(cfg().theme, ColorMode::Always);
     let backend = TestBackend::new(w, h);
     let mut term = Terminal::new(backend).unwrap();
     term.draw(|f| render::draw(f, &app, theme)).unwrap();
@@ -107,8 +110,8 @@ fn draw_never_panics_on_a_too_small_frame_even_without_a_prior_resize() {
     // trusted `app.mode`/`app.size` here instead of the frame it was actually given, this would
     // index outside the buffer instead of drawing the too-small notice.
     for (w, h) in [(100u16, 20u16), (59u16, 23u16)] {
-        let app = App::new(&cfg(), world());
-        let theme = Theme::new(cfg().theme);
+        let app = App::new(&cfg(), world(), Box::new(MemorySaveIo::new()));
+        let theme = Theme::new(cfg().theme, ColorMode::Always);
         let backend = TestBackend::new(w, h);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| render::draw(f, &app, theme)).unwrap();
@@ -177,14 +180,14 @@ fn enemy_sword_and_telegraph_glyphs_land_on_expected_cells_60x24() {
 
 #[test]
 fn scene_renders_identical_characters_under_every_theme() {
-    let mut app = App::new(&cfg(), world());
+    let mut app = App::new(&cfg(), world(), Box::new(MemorySaveIo::new()));
     combat_scene_setup(&mut app);
     app.on_resize(60, 24);
 
     let texts: Vec<String> = [ThemeName::Mono, ThemeName::Gameboy, ThemeName::Ansi]
         .into_iter()
         .map(|theme_name| {
-            let theme = Theme::new(theme_name);
+            let theme = Theme::new(theme_name, ColorMode::Always);
             let backend = TestBackend::new(60, 24);
             let mut term = Terminal::new(backend).unwrap();
             term.draw(|f| render::draw(f, &app, theme)).unwrap();
@@ -243,7 +246,7 @@ fn object_kind_glyphs_render_identically_under_every_theme() {
     ];
 
     for (room_id, mutate) in setups {
-        let mut app = App::new(&cfg(), world());
+        let mut app = App::new(&cfg(), world(), Box::new(MemorySaveIo::new()));
         app.apply(&[Action::Confirm]);
         enter_room(&mut app, room_id);
         mutate(&mut app);
@@ -252,7 +255,7 @@ fn object_kind_glyphs_render_identically_under_every_theme() {
         let texts: Vec<String> = [ThemeName::Mono, ThemeName::Gameboy, ThemeName::Ansi]
             .into_iter()
             .map(|theme_name| {
-                let theme = Theme::new(theme_name);
+                let theme = Theme::new(theme_name, ColorMode::Always);
                 let backend = TestBackend::new(60, 24);
                 let mut term = Terminal::new(backend).unwrap();
                 term.draw(|f| render::draw(f, &app, theme)).unwrap();
@@ -455,4 +458,43 @@ fn the_victory_overlay_renders_at_60x24() {
     });
     let text = buffer_text(&buf);
     assert!(text.contains("relit"));
+}
+
+#[test]
+fn confirm_new_game_overlay_renders_over_a_usable_slot() {
+    let buf = render_at(60, 24, |app| {
+        app.apply(&[Action::Confirm]); // New Game -> Playing
+        app.apply(&[Action::Cancel]); // -> Paused
+        app.apply(&[Action::Confirm]); // manual save -> slot becomes Usable
+        app.mode = Mode::MainMenu;
+        app.menu = MenuCursor::NewGame;
+        app.apply(&[Action::Confirm]); // New Game over a Usable slot -> confirmation
+    });
+    let text = buffer_text(&buf);
+    assert!(text.contains("Start a new game?"));
+    assert!(text.contains("overwrite"));
+}
+
+#[test]
+fn save_problem_overlay_offers_a_backup_restore_over_a_corrupt_slot() {
+    let scratch = common::ScratchDir::new("render-save-problem");
+    std::fs::write(mosslight::save::save_path(scratch.path()), b"not json").expect("write fixture");
+
+    let mut app = App::new(
+        &cfg(),
+        world(),
+        Box::new(FileSaveIo::new(scratch.path().to_path_buf())),
+    );
+    app.menu = MenuCursor::Continue;
+    app.apply(&[Action::Confirm]); // Continue over a Corrupt slot -> Mode::SaveProblem
+    app.on_resize(60, 24);
+
+    let backend = TestBackend::new(60, 24);
+    let mut term = Terminal::new(backend).unwrap();
+    let theme = Theme::new(cfg().theme, ColorMode::Always);
+    term.draw(|f| render::draw(f, &app, theme)).unwrap();
+    let text = buffer_text(term.backend().buffer());
+    assert!(text.contains("Save damaged"));
+    assert!(text.contains("Restore backup"));
+    assert!(text.contains("New game"));
 }

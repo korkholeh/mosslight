@@ -24,6 +24,11 @@ pub const TELEGRAPH_MIN_TICKS: u64 = 18;
 /// Maximum catch-up simulation steps per loop iteration after a stall (spec §9).
 pub const MAX_CATCHUP_STEPS: u32 = 5;
 
+/// Invulnerability window granted right after a save is loaded: 60 ticks = 2000 ms (spec §10's
+/// "short safe window"), so a restored hero cannot take an unseen hit before the player gets their
+/// bearings.
+pub const LOAD_SAFE_WINDOW_TICKS: u64 = 60;
+
 /// Maximum input events read per loop iteration.
 pub const INPUT_EVENTS_PER_ITER: usize = 32;
 

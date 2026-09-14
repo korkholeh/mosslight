@@ -91,7 +91,7 @@ tests/             integration tests incl. headless playthrough and TestBackend 
 | `config` | Parse argv into an immutable `Config`; decide ASCII/Unicode, colour, theme, fps, save dir, seed; refuse a non-TTY or `TERM=dumb` before any terminal mutation | §12 defines a CLI surface and §3 requires a clean pre-raw-mode refusal, so the decision must happen before the terminal is touched. |
 | `terminal` | Enter/leave raw mode and the alternate screen, own the `TerminalGuard`, install the panic hook, register SIGTERM/SIGHUP flags, report terminal size | §11 makes terminal restoration a correctness requirement on four exit paths; concentrating it in one RAII type is the only way to prove it. |
 | `input` | Translate `KeyEvent` to semantic `Action` per mode; cap events read per iteration; coalesce redundant movement; drop pending game actions when a menu/dialogue closes | §5 forbids relying on key-release and forbids a long queue of stale moves; that policy is a unit-testable pure function, not loop trivia. |
-| `app` | The screen state machine (MainMenu, Playing, Dialogue, Map, Inventory, Paused, ConfirmQuit, ConfirmNewGame, GameOver, Victory, TooSmall); decides when simulation is paused; turns `GameEvent`s into UI effects and autosave calls | Pausing, dialogue, and autosave triggers are cross-cutting policy that belongs to neither the pure simulation nor the renderer. |
+| `app` | The screen state machine (MainMenu, Playing, Dialogue, Map, Inventory, Paused, ConfirmQuit, ConfirmNewGame, SaveProblem, GameOver, Victory, TooSmall); decides when simulation is paused; turns `GameEvent`s into UI effects and autosave calls; owns a `Box<dyn SaveIo>` (the port; see `save` below) and the cached `SlotState` it probes at startup | Pausing, dialogue, and autosave triggers are cross-cutting policy that belongs to neither the pure simulation nor the renderer. `App` deciding *when* to save while a separate port decides *where* keeps the filesystem out of every test that only cares about policy (phase 6, deviates from this table's original free-function sketch below — logged in DECISIONS). |
 | `game` | The pure simulation: `update(&mut GameState, &[Action], tick) -> Vec<GameEvent>`; movement, collision, combat, enemy AI, puzzles, boss phases, room transitions | §8's headline requirement is that the simulation does not depend on the terminal; this module is that boundary. |
 | `game::tuning` | Every combat/movement constant in one place, expressed in ticks | §6 explicitly requires all combat values kept together for balancing. |
 | `game::rng` | Seeded SplitMix64; lives in `GameState`, advanced only inside `update` | §8 requires seeded, controlled randomness, and §13 requires identical simulation for identical seed + action sequence. |
@@ -119,9 +119,14 @@ pub fn draw(frame: &mut Frame, app: &App, theme: &Theme);
 pub fn load() -> Result<World, ContentError>;          // parses the embedded RON
 pub fn validate(world: &World) -> Result<(), Vec<ContentError>>;
 
-// save
-pub fn load(dir: &Path) -> LoadOutcome;                // Ok | Missing | Corrupt | FutureVersion
-pub fn store(dir: &Path, snapshot: &SaveFile) -> io::Result<()>;  // atomic
+// save — accessed only through the port; App owns a Box<dyn SaveIo>
+pub trait SaveIo {
+    fn load(&mut self) -> LoadOutcome;         // Ok | Missing | Corrupt | FutureVersion
+    fn load_backup(&mut self) -> LoadOutcome;
+    fn store(&mut self, save: &SaveFile) -> StoreOutcome;  // Ok | RefusedFutureVersion | RefusedDeathState | Failed
+}
+// FileSaveIo (production, atomic stage-then-commit with a retained .bak) and
+// MemorySaveIo (tests, zero disk I/O) are the two implementations.
 ```
 
 `Action` is semantic (`MoveNorth`, `Attack`, `UseLantern`, `Interact`, `Confirm`, `Cancel`, `ToggleMap`,
@@ -309,7 +314,7 @@ report will be measured against.
 | **Terminal (resize storm)** | Many resize events while dragging | Coalesce to the last size seen per iteration; re-layout only on an actual change. |
 | **Filesystem (save dir)** | Missing, not writable, disk full, `--save-dir` points at a file | Create the directory on first use; on failure report once in the message line and in the deferred diagnostics, keep playing (a save failure must not end a session), and retry at the next autosave point. |
 | **Filesystem (save file)** | Truncated, corrupt, hand-edited | `LoadOutcome::Corrupt` → offer "restore backup" or "new game"; never panic, never silently overwrite (§10). |
-| **Filesystem (save file)** | Version newer than this build | `LoadOutcome::FutureVersion` → refuse to load **and** refuse to overwrite; main menu offers New Game into a differently named slot only after explicit confirmation (§10). |
+| **Filesystem (save file)** | Version newer than this build | `LoadOutcome::FutureVersion` → refuse to load **and** refuse to overwrite; main menu's `Continue` opens `Mode::SaveProblem` with `New game`, gated by `ConfirmNewGame`. That new run plays with autosave disabled (every `store` call keeps returning `RefusedFutureVersion`, surfaced once per attempt) rather than writing into a second, differently-named slot — §2 fixes exactly one slot, so a second slot was considered and rejected (DECISIONS `[phase-6/plan]`). |
 | **Filesystem (backup)** | Backup also corrupt | Report both as unusable; only New Game remains. The original files are left untouched on disk for the user to recover manually. |
 | **Signals** (SIGTERM, SIGHUP) | Delivered mid-frame, e.g. SSH hang-up | `signal-hook` sets an `AtomicBool`; the main loop observes it, leaves the loop, restores the terminal, and exits. **No file I/O in a handler** (§11). An autosave already on disk is what protects progress. |
 | **Ctrl+C** | Raw mode suppresses SIGINT, so it arrives as a key event | Handled in `input` as a quit request with the same confirmation path as `Q` (§11). |
@@ -399,6 +404,9 @@ question a user can ask is "where is my save?", answered by the README and by `-
   requirements are a headless playthrough and scene assertions, both of which `TestBackend` and ordinary
   `cargo test` cover without a second test surface to keep alive.
 - **Unicode as the base tile set** — rejected by §4. ASCII is the base; Unicode is an enhancement that ships
-  complete or not at all.
+  complete or not at all. Phase 6 resolved that enhancement to "not at all": every Unicode block that would
+  look better than ASCII is `East_Asian_Width=Ambiguous` and risks silently doubling a tile's width, and the
+  fixed dependency set excludes `unicode-width` to verify it. `--unicode` is withdrawn from the CLI rather
+  than shipped half-populated (`docs/user/cli.md`, DECISIONS `[phase-6/plan]`).
 - **Storing enemy state in the save** — rejected by §10, and it is the better design anyway: respawning
   enemies on load removes a large class of "save scummed into an unwinnable fight" states.

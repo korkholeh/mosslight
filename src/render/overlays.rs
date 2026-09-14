@@ -5,7 +5,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget, Wrap};
 
-use crate::app::{App, MenuCursor, Mode};
+use crate::app::{App, MenuCursor, Mode, SlotState};
 use crate::game::{RoomIdx, RoomKind};
 
 fn centered_box(area: Rect, w: u16, h: u16) -> Rect {
@@ -31,9 +31,9 @@ fn draw_box(buf: &mut Buffer, area: Rect, title: &str, lines: &[String]) {
     Widget::render(Paragraph::new(text).wrap(Wrap { trim: false }), inner, buf);
 }
 
-pub fn draw_main_menu(buf: &mut Buffer, area: Rect, cursor: MenuCursor) {
+pub fn draw_main_menu(buf: &mut Buffer, area: Rect, cursor: MenuCursor, continue_label: &str) {
     let items = [
-        (MenuCursor::Continue, "Continue (no save yet)"),
+        (MenuCursor::Continue, continue_label),
         (MenuCursor::NewGame, "New Game"),
         (MenuCursor::Help, "Help"),
         (MenuCursor::Quit, "Quit"),
@@ -50,13 +50,58 @@ pub fn draw_main_menu(buf: &mut Buffer, area: Rect, cursor: MenuCursor) {
 }
 
 pub fn draw_pause(buf: &mut Buffer, area: Rect) {
-    let box_area = centered_box(area, 24, 5);
+    let box_area = centered_box(area, 24, 6);
     draw_box(
         buf,
         box_area,
         "Paused",
-        &["Esc: resume".to_string(), "Q: quit".to_string()],
+        &[
+            "Esc: resume".to_string(),
+            "Enter: save".to_string(),
+            "Q: quit".to_string(),
+        ],
     );
+}
+
+/// New Game over a `Usable`/`FutureVersion` slot (spec §12: overwriting an existing playthrough
+/// requires confirmation).
+pub fn draw_confirm_new_game(buf: &mut Buffer, area: Rect) {
+    let box_area = centered_box(area, 40, 6);
+    draw_box(
+        buf,
+        box_area,
+        "Start a new game?",
+        &[
+            "This will overwrite your saved progress.".to_string(),
+            "Enter/E: confirm".to_string(),
+            "Esc: cancel".to_string(),
+        ],
+    );
+}
+
+/// The slot is `Corrupt` or `FutureVersion`: offers a backup restore (if the slot is `Corrupt`) or
+/// a fresh run, and never writes anything (spec §10).
+pub fn draw_save_problem(buf: &mut Buffer, area: Rect, app: &App) {
+    let title = match &app.slot {
+        SlotState::Corrupt { .. } => "Save damaged",
+        SlotState::FutureVersion { .. } => "Save from a newer version",
+        SlotState::Empty | SlotState::Usable(_) => "Save problem",
+    };
+    let labels = app.save_problem_labels();
+    let lines: Vec<String> = labels
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let marker = if i == app.save_problem_cursor {
+                "> "
+            } else {
+                "  "
+            };
+            format!("{marker}{label}")
+        })
+        .collect();
+    let box_area = centered_box(area, 46, 4 + labels.len() as u16);
+    draw_box(buf, box_area, title, &lines);
 }
 
 pub fn draw_confirm_quit(buf: &mut Buffer, area: Rect) {
@@ -73,7 +118,7 @@ pub fn draw_confirm_quit(buf: &mut Buffer, area: Rect) {
 }
 
 pub fn draw_help(buf: &mut Buffer, area: Rect) {
-    let box_area = centered_box(area, 40, 13);
+    let box_area = centered_box(area, 40, 14);
     draw_box(
         buf,
         box_area,
@@ -86,6 +131,7 @@ pub fn draw_help(buf: &mut Buffer, area: Rect) {
             "Map: M   Inventory: I".to_string(),
             "Dialogue: E advances, Esc closes".to_string(),
             "Pause/Back: Esc".to_string(),
+            "Save: Esc to pause, then Enter".to_string(),
             "Quit: Q".to_string(),
             "Esc/?: close".to_string(),
         ],
@@ -224,7 +270,7 @@ pub fn draw_game_over(buf: &mut Buffer, area: Rect) {
         box_area,
         "You fell",
         &[
-            "Enter: retry from the last room".to_string(),
+            "Enter: retry from the last save".to_string(),
             "Esc: main menu".to_string(),
         ],
     );
@@ -257,7 +303,7 @@ pub fn draw_too_small(buf: &mut Buffer, area: Rect, required: (u16, u16), curren
 
 pub fn draw_overlay_for_mode(buf: &mut Buffer, area: Rect, app: &App) {
     match app.mode {
-        Mode::MainMenu => draw_main_menu(buf, area, app.menu),
+        Mode::MainMenu => draw_main_menu(buf, area, app.menu, app.continue_label()),
         Mode::Paused => draw_pause(buf, area),
         Mode::ConfirmQuit => draw_confirm_quit(buf, area),
         Mode::Help => draw_help(buf, area),
@@ -266,6 +312,8 @@ pub fn draw_overlay_for_mode(buf: &mut Buffer, area: Rect, app: &App) {
         Mode::Map => draw_map(buf, area, app),
         Mode::Inventory => draw_inventory(buf, area, app),
         Mode::Victory => draw_victory(buf, area),
+        Mode::ConfirmNewGame => draw_confirm_new_game(buf, area),
+        Mode::SaveProblem => draw_save_problem(buf, area, app),
         Mode::Playing | Mode::TooSmall => {}
     }
 }

@@ -177,6 +177,16 @@ impl GameState {
         tile_ok && self.object_at(room, at).is_none() && block_free
     }
 
+    /// Whether a manual save should be refused right now (spec §10): a live swing, a still-running
+    /// invulnerability window, or any live enemy in the room. The conservative "a live enemy is in
+    /// the room" reading is the only one stable under AI changes; the other two terms cover the
+    /// tail of a fight in a room that has just been cleared.
+    pub fn in_combat(&self) -> bool {
+        self.hero.attack.is_some()
+            || self.tick < self.hero.invuln_until
+            || self.enemies.iter().any(|e| e.alive)
+    }
+
     /// Every `Hidden` position in `room` revealed by a lit torch or a solved puzzle, as a set.
     /// `is_revealed` answers one position at a time (cheap for the single hero-movement check
     /// each tick); this is for the room-local pathfinding in `ai.rs`/`combat.rs`, which cannot

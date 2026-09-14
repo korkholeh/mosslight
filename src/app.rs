@@ -3,8 +3,9 @@
 use std::rc::Rc;
 
 use crate::config::Config;
-use crate::game::{update, Action, GameEvent, GameState, Tick, World};
+use crate::game::{update, Action, GameEvent, GameState, Reward, Tick, World};
 use crate::input::{coalesce, drop_pending};
+use crate::save::{LoadOutcome, RestoreError, SaveFile, SaveIo, StoreOutcome};
 
 pub const MIN_COLS: u16 = 60;
 pub const MIN_ROWS: u16 = 24;
@@ -22,6 +23,53 @@ pub enum Mode {
     Map,
     Inventory,
     Victory,
+    /// "New Game over an existing run" confirmation (spec §12).
+    ConfirmNewGame,
+    /// The slot is `Corrupt` or `FutureVersion`: offers a backup restore or a fresh run, and never
+    /// writes anything (spec §10).
+    SaveProblem,
+}
+
+/// What `App` knows about the on-disk slot, probed once at `App::new` and refreshed after every
+/// successful `store`/backup restore.
+#[derive(Debug, Clone)]
+pub enum SlotState {
+    Empty,
+    Usable(Box<SaveFile>),
+    Corrupt { detail: String },
+    FutureVersion { found: u32, supported: u32 },
+}
+
+impl From<LoadOutcome> for SlotState {
+    fn from(outcome: LoadOutcome) -> Self {
+        match outcome {
+            LoadOutcome::Ok(save) => SlotState::Usable(save),
+            LoadOutcome::Missing => SlotState::Empty,
+            LoadOutcome::Corrupt { detail, .. } => SlotState::Corrupt { detail },
+            LoadOutcome::FutureVersion { found, supported } => {
+                SlotState::FutureVersion { found, supported }
+            }
+        }
+    }
+}
+
+/// The `Mode::SaveProblem` item list depends on why the slot is unusable (Design §5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveProblemAction {
+    RestoreBackup,
+    NewGame,
+    Back,
+}
+
+/// One of the four §10 autosave edges. Carried only for the diagnostic message on refusal; the
+/// trigger itself is a local decision inside `App::tick` (each event fires at most once by
+/// construction, so nothing needs to persist across ticks).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveReason {
+    RoomTransition,
+    ImportantItem,
+    PuzzleSolved,
+    BossVictory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,10 +109,6 @@ pub struct App {
     pub mode: Mode,
     prev_mode: Mode,
     pub state: GameState,
-    /// The state as of the last room entry (New Game counts as entering the start room). Retry
-    /// from `Mode::GameOver` restores this rather than the save file — phase 6 repoints the
-    /// restore at the save and keeps this rewind rule (see DECISIONS.md).
-    checkpoint: GameState,
     pub menu: MenuCursor,
     pub message: String,
     pub size: (u16, u16),
@@ -73,21 +117,31 @@ pub struct App {
     tick_counter: Tick,
     seed: u64,
     world: Rc<World>,
+    io: Box<dyn SaveIo>,
+    /// What's on disk, probed once at startup and refreshed after every successful `store` or
+    /// backup restore — `Continue`/retry/`Mode::SaveProblem` all read this rather than the disk.
+    pub slot: SlotState,
+    /// Cursor into `save_problem_items()`, reset to 0 whenever `Mode::SaveProblem` opens.
+    pub save_problem_cursor: usize,
+    /// Save failures buffered for `main` to flush to stderr after the terminal guard drops
+    /// (CLAUDE.md: no log line may reach the screen). Drained by `take_diagnostics`.
+    diagnostics: Vec<String>,
 }
 
 impl App {
     /// `world` is the already-parsed-and-validated world (`main`'s content preflight, or a test's
     /// own `content::load()`) — `App` never re-parses or re-validates content itself, so there is
     /// no unwrap-family call on the content path here (CLAUDE.md) and no risk of gameplay running
-    /// against a different world than the one the preflight checked.
-    pub fn new(cfg: &Config, world: Rc<World>) -> Self {
+    /// against a different world than the one the preflight checked. `io` is a required argument
+    /// so `main` cannot forget to inject a real `SaveIo` and silently ship a build that never saves
+    /// (Design §4); it is also probed exactly once, here, to fill `slot`.
+    pub fn new(cfg: &Config, world: Rc<World>, mut io: Box<dyn SaveIo>) -> Self {
         let state = GameState::new(cfg.seed, Rc::clone(&world));
-        let checkpoint = state.clone();
+        let slot = SlotState::from(io.load());
         App {
             mode: Mode::MainMenu,
             prev_mode: Mode::MainMenu,
             state,
-            checkpoint,
             menu: MenuCursor::NewGame,
             message: String::new(),
             size: (MIN_COLS, MIN_ROWS),
@@ -96,6 +150,10 @@ impl App {
             tick_counter: 0,
             seed: cfg.seed,
             world,
+            io,
+            slot,
+            save_problem_cursor: 0,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -107,6 +165,205 @@ impl App {
         let d = self.dirty;
         self.dirty = false;
         d
+    }
+
+    /// Save failures buffered since the last call, for `main` to flush to stderr after the
+    /// terminal guard drops.
+    pub fn take_diagnostics(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.diagnostics)
+    }
+
+    /// The main menu's `Continue` label, slot-dependent (Design §5).
+    pub fn continue_label(&self) -> &'static str {
+        match &self.slot {
+            SlotState::Empty => "Continue (no save yet)",
+            SlotState::Usable(_) => "Continue",
+            SlotState::Corrupt { .. } => "Continue (save damaged)",
+            SlotState::FutureVersion { .. } => "Continue (save is from a newer version)",
+        }
+    }
+
+    /// The `Mode::SaveProblem` item list: three items over a corrupt slot (a backup may exist),
+    /// two over a future-version slot (there is no backup path for "this build is too old").
+    pub fn save_problem_items(&self) -> Vec<SaveProblemAction> {
+        match &self.slot {
+            SlotState::Corrupt { .. } => vec![
+                SaveProblemAction::RestoreBackup,
+                SaveProblemAction::NewGame,
+                SaveProblemAction::Back,
+            ],
+            SlotState::FutureVersion { .. } => {
+                vec![SaveProblemAction::NewGame, SaveProblemAction::Back]
+            }
+            SlotState::Empty | SlotState::Usable(_) => vec![SaveProblemAction::Back],
+        }
+    }
+
+    /// Display labels for `save_problem_items()`, in the same order — `NewGame` is annotated over
+    /// a future-version slot so the player knows that save is left untouched (Design §5's table).
+    pub fn save_problem_labels(&self) -> Vec<&'static str> {
+        let future_version = matches!(self.slot, SlotState::FutureVersion { .. });
+        self.save_problem_items()
+            .into_iter()
+            .map(|item| match item {
+                SaveProblemAction::RestoreBackup => "Restore backup",
+                SaveProblemAction::NewGame if future_version => {
+                    "New game (this save will not be overwritten)"
+                }
+                SaveProblemAction::NewGame => "New game",
+                SaveProblemAction::Back => "Back",
+            })
+            .collect()
+    }
+
+    /// Resets `state`/`tick_counter` to a fresh run at the world's start spawn. Shared by every
+    /// path that starts a new game (main menu, the `ConfirmNewGame`/`SaveProblem` confirmations,
+    /// and a `GameOver` retry with no usable slot) — `tick_counter` is reset here too, since a
+    /// fresh `GameState` starts at `tick = 0` and letting `tick_counter` keep counting from a
+    /// previous run would immediately desync it from every zeroed hero timer.
+    ///
+    /// A `Usable` slot is also cleared to `Empty` here: it is the one case where `GameOver`'s
+    /// retry would otherwise restore the *abandoned* run instead of starting fresh before the new
+    /// run's first autosave (review round 1, minor #2). `Corrupt`/`FutureVersion` are left as they
+    /// are — `GameOver`'s retry already treats them the same as `Empty` (a fresh start, never a
+    /// restore), so there is no resurrection risk to guard against, and clearing them would only
+    /// make `continue_label`/the message row misreport a real on-disk problem as "no save yet".
+    fn start_new_game(&mut self) {
+        if matches!(self.slot, SlotState::Usable(_)) {
+            self.slot = SlotState::Empty;
+        }
+        self.state = GameState::new(self.seed, Rc::clone(&self.world));
+        self.tick_counter = self.state.tick;
+        // The start room's hint never fires a `RoomEntered` event (it is the initial room, not one
+        // the hero transitions into — see `GameState::new`), so a fresh run shows it directly.
+        if let Some(hint) = &self.state.room().hint {
+            self.message = hint.clone();
+        }
+    }
+
+    /// Applies `save.restore(...)` onto `self.state`/`tick_counter`. On success, reports how many
+    /// unknown ids were dropped (if any) in the message row and diagnostics, and returns `true`. A
+    /// `RestoreError` — the saved room itself no longer resolving, or that room having no authored
+    /// spawn — is treated exactly like a corrupt slot (ADR 0006's "never silently unloadable" cuts
+    /// both ways: a save this build cannot make sense of must not silently vanish either).
+    fn try_restore(&mut self, save: &SaveFile) -> bool {
+        match save.restore(Rc::clone(&self.world), self.seed) {
+            Ok(restored) => {
+                if !restored.dropped_ids.is_empty() {
+                    self.message = format!(
+                        "Save loaded ({} unknown id(s) dropped).",
+                        restored.dropped_ids.len()
+                    );
+                    self.diagnostics.push(format!(
+                        "save: dropped unknown ids on load: {:?}",
+                        restored.dropped_ids
+                    ));
+                }
+                self.state = restored.state;
+                self.tick_counter = self.state.tick;
+                true
+            }
+            Err(RestoreError::UnknownRoom(id)) => {
+                self.slot = SlotState::Corrupt {
+                    detail: format!("saved room {id:?} no longer exists"),
+                };
+                self.save_problem_cursor = 0;
+                self.set_mode(Mode::SaveProblem);
+                false
+            }
+            Err(RestoreError::NoSafeSpawn(id)) => {
+                self.slot = SlotState::Corrupt {
+                    detail: format!("room {id:?} has no authored spawn"),
+                };
+                self.save_problem_cursor = 0;
+                self.set_mode(Mode::SaveProblem);
+                false
+            }
+        }
+    }
+
+    /// `Mode::SaveProblem`'s `Restore backup` item: loads `save.json.bak` and, if it restores
+    /// cleanly, replaces the slot and resumes play from it. Never writes anything — a failed
+    /// restore only updates the message row.
+    fn restore_backup(&mut self) {
+        match self.io.load_backup() {
+            LoadOutcome::Ok(save) => {
+                if self.try_restore(&save) {
+                    self.slot = SlotState::Usable(save);
+                    self.set_mode(Mode::Playing);
+                }
+            }
+            LoadOutcome::Missing => {
+                self.message = "No backup is available.".to_string();
+                self.dirty = true;
+            }
+            LoadOutcome::Corrupt { .. } => {
+                self.message = "The backup save is also damaged.".to_string();
+                self.dirty = true;
+            }
+            LoadOutcome::FutureVersion { .. } => {
+                self.message = "The backup save is from a newer version.".to_string();
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Captures the current state and writes it through `io`, updating `slot` on success and
+    /// reporting a refusal or failure in the message row (and, for a failure, in diagnostics) —
+    /// spec §10's "a save failure never ends the session": play always continues either way.
+    fn save_now(&mut self, ok_message: &str) {
+        let save = SaveFile::capture(&self.state);
+        match self.io.store(&save) {
+            StoreOutcome::Ok => {
+                self.slot = SlotState::Usable(Box::new(save));
+                self.message = ok_message.to_string();
+            }
+            StoreOutcome::RefusedFutureVersion { .. } => {
+                self.message =
+                    "Save not written: the existing save is from a newer version.".to_string();
+            }
+            StoreOutcome::RefusedDeathState => {
+                // Unreachable via the four autosave triggers (a `HeroDied` batch clears the
+                // pending save before this is called) and via manual save (refused earlier by
+                // `in_combat`, which is true whenever `health_halves == 0` would even arise this
+                // tick) — kept as a real match arm rather than a `panic!`, since `SaveIo` is a
+                // trait boundary this code cannot prove every implementation respects.
+                self.message = "Cannot save right now.".to_string();
+            }
+            StoreOutcome::Failed { detail } => {
+                self.message = "Save failed; will try again later.".to_string();
+                self.diagnostics.push(format!("save failed: {detail}"));
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// One of the four §10 autosave edges. Unlike a manual save, a successful autosave stays
+    /// silent on the message row — it must not steal a more interesting line the same tick already
+    /// set (the room's hint, a pickup's own flavour text) — but a refusal or a failure still needs
+    /// the player's attention, so those cases do report.
+    fn autosave(&mut self, _reason: SaveReason) {
+        let save = SaveFile::capture(&self.state);
+        match self.io.store(&save) {
+            StoreOutcome::Ok => {
+                self.slot = SlotState::Usable(Box::new(save));
+            }
+            StoreOutcome::RefusedFutureVersion { .. } => {
+                self.message =
+                    "Save not written: the existing save is from a newer version.".to_string();
+                self.dirty = true;
+            }
+            StoreOutcome::RefusedDeathState => {
+                // The `died` guard in `tick` clears `pending_save` before this is ever reached.
+                self.diagnostics
+                    .push("autosave: unexpected death-state refusal".to_string());
+            }
+            StoreOutcome::Failed { detail } => {
+                self.message = "Save failed; will try again later.".to_string();
+                self.diagnostics.push(format!("autosave failed: {detail}"));
+                self.dirty = true;
+            }
+        }
     }
 
     fn set_mode(&mut self, mode: Mode) {
@@ -144,6 +401,8 @@ impl App {
                     self.apply_overlay(action, Mode::Inventory, Action::ToggleInventory)
                 }
                 Mode::Victory => self.apply_victory(action),
+                Mode::ConfirmNewGame => self.apply_confirm_new_game(action),
+                Mode::SaveProblem => self.apply_save_problem(action),
             }
             if mode_before != Mode::Playing && self.mode == Mode::Playing {
                 drop_pending(&mut sim_actions);
@@ -158,25 +417,86 @@ impl App {
             Action::MoveNorth => self.menu = self.menu.prev(),
             Action::MoveSouth => self.menu = self.menu.next(),
             Action::Confirm => match self.menu {
-                MenuCursor::Continue => {
-                    self.message = "No save yet".to_string();
-                    self.dirty = true;
-                }
-                MenuCursor::NewGame => {
-                    self.state = GameState::new(self.seed, Rc::clone(&self.world));
-                    self.checkpoint = self.state.clone();
-                    // The start room's hint never fires a `RoomEntered` event (it is the initial
-                    // room, not one the hero transitions into — see `GameState::new`), so New
-                    // Game shows it directly instead.
-                    if let Some(hint) = &self.state.room().hint {
-                        self.message = hint.clone();
-                    }
-                    self.set_mode(Mode::Playing);
-                }
+                MenuCursor::Continue => self.continue_from_menu(),
+                MenuCursor::NewGame => self.new_game_from_menu(),
                 MenuCursor::Help => self.set_mode(Mode::Help),
                 MenuCursor::Quit => self.set_mode(Mode::ConfirmQuit),
             },
             Action::Help => self.set_mode(Mode::Help),
+            Action::Quit => self.set_mode(Mode::ConfirmQuit),
+            _ => {}
+        }
+    }
+
+    fn continue_from_menu(&mut self) {
+        match self.slot.clone() {
+            SlotState::Empty => {
+                self.message = "No save yet".to_string();
+                self.dirty = true;
+            }
+            SlotState::Usable(save) => {
+                if self.try_restore(&save) {
+                    self.set_mode(Mode::Playing);
+                }
+            }
+            SlotState::Corrupt { .. } | SlotState::FutureVersion { .. } => {
+                self.save_problem_cursor = 0;
+                self.set_mode(Mode::SaveProblem);
+            }
+        }
+    }
+
+    /// New Game over a `Usable` or `FutureVersion` slot requires confirmation (spec §12: "New
+    /// Game over an existing playthrough requires confirmation"); an `Empty` or `Corrupt` slot has
+    /// no existing progress to lose, so it starts directly, as before this phase.
+    fn new_game_from_menu(&mut self) {
+        match &self.slot {
+            SlotState::Usable(_) | SlotState::FutureVersion { .. } => {
+                self.set_mode(Mode::ConfirmNewGame);
+            }
+            SlotState::Empty | SlotState::Corrupt { .. } => {
+                self.start_new_game();
+                self.set_mode(Mode::Playing);
+            }
+        }
+    }
+
+    fn apply_confirm_new_game(&mut self, action: Action) {
+        match action {
+            Action::Confirm => {
+                self.start_new_game();
+                self.set_mode(Mode::Playing);
+            }
+            Action::Cancel => self.set_mode(Mode::MainMenu),
+            Action::Quit => self.set_mode(Mode::ConfirmQuit),
+            _ => {}
+        }
+    }
+
+    fn apply_save_problem(&mut self, action: Action) {
+        let items = self.save_problem_items();
+        match action {
+            Action::MoveNorth => {
+                self.save_problem_cursor = if self.save_problem_cursor == 0 {
+                    items.len() - 1
+                } else {
+                    self.save_problem_cursor - 1
+                };
+                self.dirty = true;
+            }
+            Action::MoveSouth => {
+                self.save_problem_cursor = (self.save_problem_cursor + 1) % items.len();
+                self.dirty = true;
+            }
+            Action::Confirm => match items[self.save_problem_cursor] {
+                SaveProblemAction::RestoreBackup => self.restore_backup(),
+                SaveProblemAction::NewGame => {
+                    self.start_new_game();
+                    self.set_mode(Mode::Playing);
+                }
+                SaveProblemAction::Back => self.set_mode(Mode::MainMenu),
+            },
+            Action::Cancel => self.set_mode(Mode::MainMenu),
             Action::Quit => self.set_mode(Mode::ConfirmQuit),
             _ => {}
         }
@@ -228,11 +548,22 @@ impl App {
         }
     }
 
+    /// `Confirm` (E/Enter, already mapped) is a manual save, refused during combat (spec §10) —
+    /// `Mode::Paused` freezes the simulation, so `self.state.in_combat()` reflects the tick play
+    /// actually stopped on, not a stale earlier one.
     fn apply_paused(&mut self, action: Action) {
         match action {
             Action::Cancel => self.set_mode(Mode::Playing),
             Action::Help => self.set_mode(Mode::Help),
             Action::Quit => self.set_mode(Mode::ConfirmQuit),
+            Action::Confirm => {
+                if self.state.in_combat() {
+                    self.message = "Cannot save during combat.".to_string();
+                    self.dirty = true;
+                } else {
+                    self.save_now("Game saved.");
+                }
+            }
             _ => {}
         }
     }
@@ -262,18 +593,25 @@ impl App {
         }
     }
 
-    /// `Confirm` retries from the last room-entry checkpoint (health included) and rewinds
-    /// `tick_counter` to match — every simulation timer is an absolute `Tick`, so resuming at the
-    /// checkpoint's tick while the counter kept advancing would fire every cooldown,
-    /// invulnerability window and AI timer at once (see DECISIONS.md). `Cancel` returns to the
-    /// main menu rather than to `Playing`, since the run that just ended is over.
+    /// `Confirm` retries from the last autosave (phase 3's in-memory checkpoint, repointed at the
+    /// save file — see DECISIONS.md) rather than a fresh hero; with no usable slot it starts a
+    /// fresh run instead, with a message saying so. Never writes anything: a death state is never
+    /// saved (§10), so retry can only ever read. `Cancel` returns to the main menu rather than to
+    /// `Playing`, since the run that just ended is over.
     fn apply_game_over(&mut self, action: Action) {
         match action {
-            Action::Confirm => {
-                self.state = self.checkpoint.clone();
-                self.tick_counter = self.state.tick;
-                self.set_mode(Mode::Playing);
-            }
+            Action::Confirm => match self.slot.clone() {
+                SlotState::Usable(save) => {
+                    if self.try_restore(&save) {
+                        self.set_mode(Mode::Playing);
+                    }
+                }
+                SlotState::Empty | SlotState::Corrupt { .. } | SlotState::FutureVersion { .. } => {
+                    self.start_new_game();
+                    self.message = "No save to retry from; starting a new run.".to_string();
+                    self.set_mode(Mode::Playing);
+                }
+            },
             Action::Cancel => self.set_mode(Mode::MainMenu),
             Action::Quit => self.set_mode(Mode::ConfirmQuit),
             _ => {}
@@ -305,22 +643,49 @@ impl App {
         let changed = !events.is_empty();
         self.dirty |= changed;
 
+        // Folded out of this tick's events rather than kept as a field across ticks: each of the
+        // four autosave-triggering events fires at most once by construction (they are edges —
+        // entering a room, picking up an item, solving a puzzle, defeating the boss — not level
+        // state), so nothing needs to survive past the point this tick resolves it (Design §5).
+        let mut pending_save: Option<SaveReason> = None;
+        let mut died = false;
         for event in &events {
             match event {
                 GameEvent::RoomEntered { room, .. } => {
-                    self.checkpoint = self.state.clone();
+                    pending_save = Some(SaveReason::RoomTransition);
                     // The §7 teaching prompt: a room's authored hint replaces the message row on
                     // entry, e.g. the start room's movement/interaction prompt.
                     if let Some(hint) = &self.state.world.room(*room).hint {
                         self.message = hint.clone();
                     }
                 }
-                GameEvent::HeroDied => self.set_mode(Mode::GameOver),
+                GameEvent::ItemPicked { reward } => {
+                    // `Reward::Message` is lore, not an item (Design §5's trigger table).
+                    if !matches!(reward, Reward::Message(_)) {
+                        pending_save = Some(SaveReason::ImportantItem);
+                    }
+                }
+                GameEvent::PuzzleSolved { .. } => pending_save = Some(SaveReason::PuzzleSolved),
+                GameEvent::BossDefeated { .. } => pending_save = Some(SaveReason::BossVictory),
+                GameEvent::HeroDied => {
+                    died = true;
+                    self.set_mode(Mode::GameOver);
+                }
                 GameEvent::GameWon => self.set_mode(Mode::Victory),
                 GameEvent::DialogueStarted { .. } => self.set_mode(Mode::Dialogue),
                 GameEvent::Message(text) => self.message = text.clone(),
                 _ => {}
             }
+        }
+
+        // The §10 death rule, enforced twice (here and in `save::store`): a death state must never
+        // overwrite the last usable save, even if the same tick's batch also crossed a room
+        // boundary or picked up an item.
+        if died {
+            pending_save = None;
+        }
+        if let Some(reason) = pending_save {
+            self.autosave(reason);
         }
 
         changed

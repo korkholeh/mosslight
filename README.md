@@ -83,13 +83,14 @@ misbehaves in a sandboxed environment.
 
 See `CHANGELOG.md` for user-visible changes.
 
-## Known limitations (phase 5)
+## Known limitations (phase 6)
 
-The game is completable end to end: New Game through the nine-room overworld (sword, lantern, three
-NPCs, chests, secrets, a step-plate puzzle), into the six-room dungeon behind the marsh's
-lantern-locked door (two small keys, a block-on-plates puzzle, a torch-sequence puzzle, guardians),
-through a two-phase telegraphed boss, and back to the lighthouse's beacon to relight it and win. Not
-yet built: the save system (Continue always reports "no save yet"), the full CLI presentation modes
-(`--unicode` and `--theme ansi` are accepted but not yet visually distinct from the ASCII/gameboy
-defaults), and the balance/measurement pass. See `.autodev/ROADMAP.md` for what each later phase
-adds, and `.autodev/PROGRESS.md` for current status.
+The game is completable end to end and now saves: New Game through the nine-room overworld (sword,
+lantern, three NPCs, chests, secrets, a step-plate puzzle), into the six-room dungeon behind the
+marsh's lantern-locked door (two small keys, a block-on-plates puzzle, a torch-sequence puzzle,
+guardians), through a two-phase telegraphed boss, and back to the lighthouse's beacon to relight it
+and win. Progress persists in one save slot, written automatically at four points plus a manual save
+from the pause screen; `gameboy`, `ansi` and `mono` are three real, visually distinct palettes.
+`--unicode` has been withdrawn (see `docs/user/cli.md`) rather than shipped half-populated. Not yet
+done: the balance/measurement pass and the final documentation/verification pass. See
+`.autodev/ROADMAP.md` for what phase 7 adds, and `.autodev/PROGRESS.md` for current status.
