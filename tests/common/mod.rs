@@ -7,13 +7,15 @@
 //! individual items would be noise; the module itself is allowed to have unused items instead.
 #![allow(dead_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use mosslight::app::App;
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
 use mosslight::game::tuning::{ROOM_H, ROOM_W};
 use mosslight::game::{update, Action, Facing, GameEvent, GameState, Pos, Tick, World};
+use mosslight::save::{MemorySaveIo, SaveIo};
 
 pub fn world() -> Rc<World> {
     Rc::new(mosslight::content::load().expect("embedded world validates"))
@@ -25,18 +27,59 @@ pub fn cfg(seed: u64) -> Config {
         color: ColorMode::Never,
         theme: ThemeName::Gameboy,
         fps: Fps::F30,
-        save_dir: PathBuf::from("/tmp"),
+        // Unused by any test: `App` now takes an explicit `SaveIo` (see `memory_io`), so nothing
+        // ever reads this path. Deliberately not a real directory, so a stray real read/write
+        // would fail loudly instead of silently touching a shared `/tmp` (see DECISIONS.md).
+        save_dir: PathBuf::from("/mosslight-save-dir-unused"),
         seed,
         debug_panic: false,
         debug_content: None,
     }
 }
 
-/// A fresh `App` in `Mode::Playing` at the world's start spawn.
+/// A `Box<dyn SaveIo>` for `App::new`, plus a cheap `Clone` handle sharing the same in-process
+/// slot — the handle stays inspectable (`store_count()`, `slot()`) after the box is moved into an
+/// `App`.
+pub fn memory_io() -> (Box<dyn SaveIo>, MemorySaveIo) {
+    let io = MemorySaveIo::new();
+    (Box::new(io.clone()), io)
+}
+
+/// A fresh `App` in `Mode::Playing` at the world's start spawn, with its own private
+/// `MemorySaveIo` (most tests never need to inspect it — see `memory_io` for the ones that do).
 pub fn new_game(seed: u64) -> App {
-    let mut app = App::new(&cfg(seed), world());
+    let (io, _) = memory_io();
+    let mut app = App::new(&cfg(seed), world(), io);
     app.apply(&[Action::Confirm]);
     app
+}
+
+/// A scratch directory under `std::env::temp_dir()`, unique per call and removed on `Drop` — the
+/// `FileSaveIo` tests' equivalent of `memory_io`. No `tempfile` crate: the dependency set is fixed
+/// (see DECISIONS.md), and this is ~10 lines over `std::fs`.
+pub struct ScratchDir {
+    path: PathBuf,
+}
+
+impl ScratchDir {
+    pub fn new(name: &str) -> Self {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("mosslight-test-{name}-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&path).expect("create scratch dir");
+        ScratchDir { path }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
 }
 
 /// One loop iteration at the fixed simulation rate: `actions` go through `App::apply` (mode

@@ -50,11 +50,21 @@ iteration.
 ## Mode machine (`src/app.rs`)
 
 ```
-MainMenu --Confirm(New Game)--> Playing
+MainMenu --Confirm(Continue), slot Usable--> Playing (state restored from the slot)
+MainMenu --Confirm(Continue), slot Empty--> MainMenu ("No save yet")
+MainMenu --Confirm(Continue), slot Corrupt/FutureVersion--> SaveProblem
+MainMenu --Confirm(New Game), slot Empty/Corrupt--> Playing (fresh state)
+MainMenu --Confirm(New Game), slot Usable/FutureVersion--> ConfirmNewGame
+ConfirmNewGame --Confirm--> Playing (fresh state)  --Cancel--> MainMenu
+SaveProblem --Confirm(Restore backup)--> Playing (state restored from save.json.bak), or stays
+    on SaveProblem with a message if the backup is missing/damaged/newer
+SaveProblem --Confirm(New game)--> Playing (fresh state)
+SaveProblem --Confirm(Back)/Cancel--> MainMenu
 MainMenu --Confirm(Help)--> Help --Cancel/Help--> MainMenu
 MainMenu --Quit--> ConfirmQuit --Cancel--> MainMenu
                               --Confirm--> (process exits 0)
 Playing  --Cancel--> Paused --Cancel--> Playing
+Paused   --Confirm--> Paused (manual save; refused during combat, message either way)
 Playing  --Help--> Help --Cancel/Help--> Playing
 Playing  --Quit--> ConfirmQuit --Cancel--> Playing
 Playing  --ToggleMap--> Map --ToggleMap/Cancel--> Playing
@@ -62,7 +72,8 @@ Playing  --ToggleInventory--> Inventory --ToggleInventory/Cancel--> Playing
 Playing  --Interact on a talkative NPC (DialogueStarted)--> Dialogue
 Dialogue --Confirm (advances a node; past the last node, or Cancel)--> Playing (DialogueEnded)
 Playing  --health reaches 0 (HeroDied)--> GameOver
-GameOver --Confirm (retry)--> Playing (state restored from the last room-entry checkpoint)
+GameOver --Confirm (retry)--> Playing (state restored from the last autosave, or fresh if the
+                                        slot is empty; never writes)
 GameOver --Cancel--> MainMenu
 GameOver --Quit--> ConfirmQuit --Cancel--> GameOver
 Playing  --the beacon is interacted with while carrying the ember (GameWon)--> Victory
@@ -74,6 +85,33 @@ TooSmall --resize back to >=60x24-->
     Paused, if the mode being recovered into was Playing (so the hero can't take an unseen hit)
     otherwise whatever mode was active before TooSmall
 ```
+
+## The save port and the autosave triggers (`src/save.rs`, `src/app.rs`)
+
+`App` never touches the filesystem itself: `App::new`'s third argument is a `Box<dyn SaveIo>`
+(`FileSaveIo` from `main`, `MemorySaveIo` from every test), and `App` decides only *when* to call
+`load`/`store` on it. The slot is probed once at startup into `SlotState` (`Empty` / `Usable` /
+`Corrupt` / `FutureVersion`) and refreshed after every successful `store` or backup restore —
+`Continue`, retry, and the `SaveProblem` screen all read `App::slot`, never the disk directly.
+
+Four events autosave, at most one write per tick even if several fire together in the same batch
+(each is an edge, so in practice at most one ever does): `RoomEntered`, an `ItemPicked` for
+anything but a lore `Reward::Message`, `PuzzleSolved`, `BossDefeated`. If the same tick's batch
+also contains `HeroDied`, the pending autosave is dropped instead — a death state is never
+written, enforced again at the file layer (`save::store`) so the rule holds even if `App`'s side
+of it is ever bypassed. Manual save (`Paused` + `Confirm`) is refused whenever
+`GameState::in_combat()` is true (a live swing, a still-running invulnerability window, or any
+live enemy in the room). A save failure (disk full, permissions) never ends the session: it is
+reported once in the message row and once via `App::take_diagnostics()` (drained by `main` into
+the same buffered `Diagnostics` that flush to stderr after the terminal guard drops), and play
+continues — the next trigger simply retries.
+
+Loading (`Continue`, retry, or a backup restore) goes through `SaveFile::restore`: `tick` resets to
+0 with every hero timer rebuilt relative to it, a short invulnerability window
+(`tuning::LOAD_SAFE_WINDOW_TICKS`) is granted, and `GameState::enter_room()` respawns enemies and
+resets puzzle state exactly as a live room transition would — a defeated boss stays defeated via
+its `defeat_flag`. An authored id in the save that no longer resolves (content renamed or removed)
+is dropped rather than failing the whole load; the count reaches the message row and diagnostics.
 
 `TooSmall` is the one mode where `Quit` skips `ConfirmQuit` entirely: a confirmation dialog cannot
 be rendered at a too-small size, and a shrunk terminal must still leave the player a keyboard way

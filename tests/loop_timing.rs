@@ -7,6 +7,7 @@ use std::rc::Rc;
 use mosslight::app::{advance_iteration, App, Pacer};
 use mosslight::config::{ColorMode, Config, Fps, GlyphSet, ThemeName};
 use mosslight::game::{tuning, Action, GameState, World};
+use mosslight::save::MemorySaveIo;
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 
@@ -30,7 +31,7 @@ fn cfg(fps: Fps) -> Config {
 /// Drives an `App` through a fixed action schedule at a given `--fps`, ticking the simulation at
 /// the fixed 30 Hz rate regardless of the render fps, and returns the final state for comparison.
 fn run_schedule(fps: Fps) -> GameState {
-    let mut app = App::new(&cfg(fps), world());
+    let mut app = App::new(&cfg(fps), world(), Box::new(MemorySaveIo::new()));
     app.apply(&[Action::Confirm]); // -> Playing
 
     let mut pacer = Pacer::new(fps.as_u32());
@@ -83,7 +84,7 @@ fn a_long_stall_yields_at_most_five_steps_and_discards_the_surplus() {
 /// `App`/`Pacer` in isolation — through a sub-tick-then-remainder pair of iterations.
 #[test]
 fn a_keypress_delivered_when_no_sim_step_is_due_is_not_lost() {
-    let mut app = App::new(&cfg(Fps::F20), world());
+    let mut app = App::new(&cfg(Fps::F20), world(), Box::new(MemorySaveIo::new()));
     app.apply(&[Action::Confirm]); // -> Playing
     let start = app.state.hero.pos;
 
@@ -131,7 +132,7 @@ fn a_keypress_delivered_when_no_sim_step_is_due_is_not_lost() {
 /// `advance_iteration` does not let a buffered action replay on more than one step.
 #[test]
 fn a_held_movement_key_advances_the_hero_at_the_step_cooldown_rate_across_iterations() {
-    let mut app = App::new(&cfg(Fps::F30), world());
+    let mut app = App::new(&cfg(Fps::F30), world(), Box::new(MemorySaveIo::new()));
     app.apply(&[Action::Confirm]); // -> Playing
 
     let mut pacer = Pacer::new(30);
@@ -171,7 +172,7 @@ fn a_held_movement_key_advances_the_hero_at_the_step_cooldown_rate_across_iterat
 /// actions (the hero is already at rest) for 100 iterations and asserts nothing is ever drawn.
 #[test]
 fn no_draw_is_due_while_playing_idle_with_no_actions() {
-    let mut app = App::new(&cfg(Fps::F30), world());
+    let mut app = App::new(&cfg(Fps::F30), world(), Box::new(MemorySaveIo::new()));
     app.apply(&[Action::Confirm]); // -> Playing
     app.take_dirty(); // drain the mode-transition dirty bit
 
@@ -190,7 +191,7 @@ fn no_draw_is_due_while_playing_idle_with_no_actions() {
 
 #[test]
 fn no_draw_is_due_while_idle_with_nothing_dirty() {
-    let mut app = App::new(&cfg(Fps::F10), world());
+    let mut app = App::new(&cfg(Fps::F10), world(), Box::new(MemorySaveIo::new()));
     // Stays in MainMenu; take_dirty() is drained once, then nothing changes for 100 iterations.
     app.take_dirty();
 

@@ -5,10 +5,13 @@ use std::path::PathBuf;
 use clap::error::ErrorKind;
 use clap::{Parser, ValueEnum};
 
+/// ASCII is the only glyph set: Unicode was withdrawn (see `docs/user/cli.md` and DECISIONS.md —
+/// every Unicode block that would improve on ASCII is `East_Asian_Width=Ambiguous`, which can
+/// silently double a tile's on-screen width under a CJK locale, and the blocks that are safely
+/// `Neutral` look no better than ASCII or are missing from common monospace fonts).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum GlyphSet {
     Ascii,
-    Unicode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,13 +60,10 @@ pub const DEFAULT_SEED: u64 = 0x4D6F73736C696768; // "Mosslig" in ASCII hex, arb
 #[derive(Debug, Parser)]
 #[command(name = "mosslight", version, about = "A terminal adventure.")]
 struct Cli {
-    /// Render with ASCII glyphs (default).
-    #[arg(long, conflicts_with = "unicode")]
-    ascii: bool,
-
-    /// Render with Unicode glyphs (parsed and stored; ASCII glyphs still render this phase).
+    /// Render with ASCII glyphs. The default, and — since Unicode was withdrawn — the only glyph
+    /// set; kept as an explicit affirmation flag (spec §12).
     #[arg(long)]
-    unicode: bool,
+    ascii: bool,
 
     /// Colour mode.
     #[arg(long, value_enum, default_value_t = ColorArg::Auto)]
@@ -152,11 +152,10 @@ impl Config {
             }
         })?;
 
-        let glyphs = if cli.unicode {
-            GlyphSet::Unicode
-        } else {
-            GlyphSet::Ascii
-        };
+        // `--ascii` is accepted but changes nothing: `GlyphSet::Ascii` is the only glyph set now
+        // that Unicode is withdrawn.
+        let _ = cli.ascii;
+        let glyphs = GlyphSet::Ascii;
 
         let color = resolve_color(
             Some(cli.color),

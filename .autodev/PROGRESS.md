@@ -1,13 +1,13 @@
 # Autodev progress — Mosslight
 
 - **Status:** running
-- **Current:** phase 5/7 · step `commit`
+- **Current:** phase 6/7 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260913-2128` · **PR:** https://github.com/korkholeh/mosslight/pull/1
 - **Stack:** Rust 1.98.1 stable (pinned), single lib+bin Cargo package — ratatui 0.30.2 (crossterm 0.29 via its re-export), clap 4.6, serde 1, ron 0.12 (content), serde_json 1 (saves), signal-hook 0.4; no async runtime, no ECS, no runtime assets. · **Profile:** `rust-tui`
 - **Test command:** `cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --locked` · **E2E:** `-`
-- **Usage:** 5h 75% (reset 14.09 11:50) · 7d 49%
-- **Totals:** 36 sessions · 6.6 h agent time · ≈$152.13 API-equivalent
-- **Updated:** 2026-09-14 11:38:23
+- **Usage:** 5h ? (reset 14.09 16:50) · 7d ?
+- **Totals:** 43 sessions · 7.6 h agent time · ≈$174.82 API-equivalent
+- **Updated:** 2026-09-14 12:51:18
 
 ## Phases
 
@@ -17,8 +17,8 @@
 | 2 | Content pipeline, validator and room transitions | no | ✅ done | 50b5925 |  |
 | 3 | Sword combat, three enemy kinds, death and determinism | yes | ✅ done | dad1978 | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
 | 4 | Overworld: NPCs, chests, sword, lantern, secrets, map and inventory | yes | ✅ done | f8abff6 | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
-| 5 | Dungeon, keys, puzzles, two-phase boss and the ending | yes | 🔨 in_progress |  |  |
-| 6 | Save slot, full CLI and presentation modes | yes | ⏳ pending |  |  |
+| 5 | Dungeon, keys, puzzles, two-phase boss and the ending | yes | ✅ done | c71cecc |  |
+| 6 | Save slot, full CLI and presentation modes | yes | 🔨 in_progress |  |  |
 | 7 | Balance, measurement, documentation and verification report | yes | ⏳ pending |  |  |
 
 ## Timeline
@@ -104,6 +104,22 @@
 - `2026-09-14 11:29:55` **p05-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 - `2026-09-14 11:35:42` **p05-review2** — approve (5m, $4.62): Phase 5 is complete and the phase gate passes (fmt + clippy -D warnings + cargo test, exit 0, re-run during this review). Every acceptance criterion maps to a test that can actually fail: tests/playthrough.rs drives New Game to GameWon with only Actions and verifies the milestone order from the rea…
 - `2026-09-14 11:38:23` **p05-docs** — done (2m, $1.09): Verified phase-5 docs against the code, PLAN.md, DECISIONS.md and both review rounds (round 2: approve). Most docs (CLAUDE.md, docs/dev/content.md, docs/dev/testing.md, docs/dev/loop-and-modes.md, docs/user/controls.md, CHANGELOG.md) were already made accurate during the implement/review-fix steps …
+- `2026-09-14 11:38:23` **p05-commit** — done: c71cecc
+- `2026-09-14 11:38:25` **push** — done: korkholeh/mosslight@autodev/spec-20260913-2128 as korkholeh
+- `2026-09-14 11:38:30` **p05-push** — done: korkholeh/mosslight@autodev/spec-20260913-2128-p05-dungeon-puzzles-boss
+- `2026-09-14 11:38:33` **p05-pr** — draft: https://github.com/korkholeh/mosslight/pull/7
+- `2026-09-14 11:38:38` **stack** — linked: 5 pull requests — Checking existing stacks... Looking up PRs for 5 branches... ✓ Updated stack to 5 PRs (stack #5)
+- `2026-09-14 11:38:45` **stack-merge** — done: 1 pull request(s) into main
+- `2026-09-14 11:39:24` **usage** — paused: 5h usage 90% ≥ 85%; sleeping until ≈14.09 11:52
+- `2026-09-14 11:52:00` **usage** — resumed: 5h ? (reset ?) · 7d ?
+- `2026-09-14 12:01:04` **p06-plan** — done (9m, $3.41): Explored the phase-5 codebase (no src/save.rs exists; config.rs already resolves save paths and colour precedence; enter_room already respawns enemies and resets the boss) and wrote .autodev/phases/06-save-cli-presentation/PLAN.md with Context, Design, 20 ordered tasks, a table mapping all 16 accep…
+- `2026-09-14 12:33:12` **p06-implement** — done (32m, $10.36): Implemented phase 6 end to end: new `src/save.rs` (versioned JSON save format, atomic stage/commit/store, two-pass version probe, `SaveFile::capture`/`restore` translating dense indices to stable ids, `SaveIo` trait with `FileSaveIo`/`MemorySaveIo`); `App` now takes a required `Box<dyn SaveIo>`, pr…
+- `2026-09-14 12:33:27` **p06-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- `2026-09-14 12:38:30` **p06-review1** — changes_requested (5m, $3.2): Phase 6 delivers the save slot, the CLI/presentation work and the docs it promised, and the full gate passes (re-run during this review: fmt, clippy -D warnings, cargo test --locked, all exit 0). src/save.rs is well built: unwrap-free and grep-enforced, a two-pass version probe that refuses a newer…
+- `2026-09-14 12:43:41` **p06-review_fix1** — done (5m, $1.72): Applied review-r1 fixes for phase 6. Fixed: MAJOR (criterion 7 under-tested) — added two tests proving enemy respawn at full hp and undefeated-boss reset to arena entry (phase-1 BossStalk at authored spawn/hp). MINOR #1 (capture boss_defeated=true never tested) — round_trip test now pins both direc…
+- `2026-09-14 12:43:57` **p06-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- `2026-09-14 12:48:35` **p06-review2** — approve (4m, $3.08): Phase 6 is complete and the full gate passes (fmt, clippy -D warnings, cargo test --locked re-run during this review, all exit 0). Every one of round 1's findings was genuinely fixed, not papered over: the MAJOR gap on criterion 7 is closed by two new tests that drive real state — `restore_respawns…
+- `2026-09-14 12:51:18` **p06-docs** — done (2m, $0.93): Verified phase 6's own doc updates (CLAUDE.md, docs/dev/loop-and-modes.md, docs/dev/testing.md, docs/user/cli.md, docs/user/controls.md, CHANGELOG.md) were already accurate against the diff and PLAN.md — no changes needed there. Fixed remaining staleness elsewhere: - `.autodev/ARCHITECTURE.md`: Mod…
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

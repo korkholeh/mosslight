@@ -9,7 +9,7 @@ protocols are used anywhere, so this works identically over a plain SSH session.
 | Attack (sword) | J or Space | Playing |
 | Use lantern | K | Playing |
 | Interact | E or Enter | Playing |
-| Confirm (menu selection, retry after death, advance/close a dialogue line, or leave the victory screen) | E or Enter | Main menu, Paused, Confirm-quit, Help, Game over, Dialogue, Victory |
+| Confirm (menu selection, save the game, retry after death, advance/close a dialogue line, or leave the victory screen) | E or Enter | Main menu, Paused, Confirm-quit, Help, Game over, Dialogue, Victory |
 | Map (opens from Playing, M or Esc closes it) | M | Playing, Map |
 | Inventory (opens from Playing, I or Esc closes it) | I | Playing, Inventory |
 | Pause / back | Esc | Playing (pauses), Paused (resumes), Help/Map/Inventory (closes), Dialogue (closes early), Confirm-quit (cancels), Game over (returns to main menu), Victory (returns to main menu) |
@@ -27,10 +27,18 @@ Notes:
   backlog of old moves.
 - Closing a menu, dialogue, or overlay drops any game action that was queued behind the key that
   closed it, so a movement key pressed while a menu was open cannot fire the instant it closes.
-- Main menu items: **Continue** (present, but reports "no save yet" until phase 6 adds saving),
-  **New Game**, **Help**, **Quit**.
-- Falling to zero health opens a "You fell" screen. Confirm retries from the last room the hero
-  entered, with the health they had on entering it; Esc abandons the run and returns to the main
+- **Save**: from the pause screen (Esc, then Enter/E), the game writes its one save slot — refused
+  with a message if a live enemy is nearby, a sword swing is in flight, or the hero is still
+  invulnerable from a recent hit. The game also saves on its own at four points: entering a new
+  room, picking up the sword/lantern/a small key/a heart container/the ember, solving a puzzle, and
+  defeating the boss. A save is never written at zero health, so dying can never overwrite the
+  last point the game actually saved. See `docs/user/cli.md` for what happens when the save file is
+  missing, damaged, or from a newer version.
+- Main menu items: **Continue** (its label reflects the save slot: no save yet, present, damaged,
+  or from a newer version), **New Game**, **Help**, **Quit**. Choosing **New Game** over an
+  existing save asks for confirmation first, since it overwrites that progress.
+- Falling to zero health opens a "You fell" screen. Confirm retries from the last save (not
+  necessarily the last room — see "Save" above); Esc abandons the run and returns to the main
   menu.
 - Facing an NPC and pressing Interact opens a dialogue window if the NPC has something to say;
   Confirm advances one line at a time (never on a timer), and closes the window past the last

@@ -2,6 +2,66 @@
 
 Appended by agents whenever they choose between options without a human.
 
+## PHASE 6 — IMPLEMENT (2026-09-14)
+
+- [phase-6/implement] `App::tick`'s `pending_save: Option<SaveReason>` is a local variable, not the
+  struct field PLAN.md's Design §5 sketches — why: every one of the four autosave-triggering
+  events is an edge (fires at most once per tick by construction) and `tick` always resolves it
+  (writes or drops it) before returning, so nothing needs to survive between calls; a struct field
+  would carry a value that is always `None` on entry to every future tick, which is a red flag for
+  state that does not need to be state — alternatives: the literal struct field, no `SaveReason`
+  enum at all (a bare `bool`).
+- [phase-6/implement] `src/input.rs::map_key`'s Enter-key match gained `Mode::ConfirmNewGame` and
+  `Mode::SaveProblem` in the same arm as every other menu-shaped mode — why: PLAN.md's Design §5
+  claims "`input.rs` is not touched at all" for the two new modes, but that claim covers *new
+  bindings*, not the pre-existing exhaustive match over `Mode` that a new enum variant always
+  breaks at compile time; no new key or behaviour was added, only the two variants slotted into the
+  existing `Confirm`-yielding group — alternatives: a wildcard arm (would have silently swallowed a
+  future mode that actually needs `Interact` instead of `Confirm`, which the exhaustive match is
+  what makes that case for).
+- [phase-6/implement] `App::start_new_game()` (the shared helper for every "begin a fresh run" path
+  — main menu New Game, `ConfirmNewGame`, `SaveProblem`'s New Game item, and a `GameOver` retry with
+  an empty slot) now resets `tick_counter` to `state.tick` — why: the pre-phase-6 main-menu New Game
+  arm reset `self.state` but never `self.tick_counter`, so starting a second run after a long first
+  one left `tick_counter` far ahead of the fresh `GameState`'s zeroed hero timers (harmless in
+  practice — it only makes every cooldown look "already ready" — but still a latent bug centralizing
+  the four call sites into one function made trivial to fix alongside them) — alternatives: leaving
+  the pre-existing gap as out of scope for this phase.
+- [phase-6/implement] `render/theme.rs`'s Gameboy role→shade assignment (hero/chest/sword/beacon =
+  lightest; enemies/telegraph/npc/torch/plate/block/door/stairs = second; wall = third;
+  floor/water/bush/pit = darkest) is an arbitrary but internally consistent reading of Design §6's
+  "hero and rewards lightest, threats/interactables second, structure third, background darkest" —
+  why: the spec never pins exact per-kind shades, and the phase's real acceptance criterion (T17)
+  is glyph-identity across themes plus "stays inside the four authored greens," not a specific
+  mapping — alternatives: assigning shades by a different intuitive grouping (e.g. rewards alone
+  lightest, hero with threats); any choice satisfies the same tests.
+- [phase-6/implement] `MemorySaveIo` is `Clone` over an `Rc<RefCell<_>>` inner slot rather than a
+  bare struct, and `tests/common::memory_io()` returns `(Box<dyn SaveIo>, MemorySaveIo)` — a boxed
+  clone for `App::new`, plus the original handle kept for `store_count()`/`slot()` inspection after
+  the box is moved into the `App` — why: `Box<dyn SaveIo>` must be owned outright by `App`, so a
+  test that wants to inspect what got written needs a second handle sharing the same backing state,
+  not a second independent slot — alternatives: giving `App` a `&mut dyn SaveIo` instead of an
+  owning `Box` (rejected already in PLAN.md's Design §4, for good reason — `main` must inject a
+  real one it also owns), exposing `App::slot`/an inspector method on `App` itself instead of on
+  the `SaveIo` (would leak a test-only concern onto the production type).
+- [phase-6/implement] `tests/common::cfg()`'s `save_dir` changed from the shared literal `/tmp` to
+  `/mosslight-save-dir-unused` — why: every test now injects its own `SaveIo` explicitly (memory or
+  a `ScratchDir`-backed `FileSaveIo`), so nothing ever reads `Config::save_dir` in a test process
+  again; a path that is not a real writable directory means a future test that mistakenly
+  constructs a `FileSaveIo` from `cfg().save_dir` fails loudly instead of silently touching a real
+  shared temp directory — alternatives: leaving it at `/tmp` (harmless today, but a silent trap for
+  tomorrow), pointing it at a `ScratchDir` (`cfg()` is synchronous and returns an owned `Config`,
+  so it cannot also own a `ScratchDir` whose `Drop` must outlive it).
+- [phase-6/implement] `tests/render_modes.rs` builds its "hero, wall, bush, chest, enemy" scene from
+  `room.crossroads` and does not also include an authored NPC in the same frame — why: no single
+  room in `assets/world.ron` authors both a chest and an NPC, and `tests/render.rs`'s existing
+  `scene_renders_identical_characters_under_every_theme` (room.lighthouse, unmodified this phase)
+  already proves glyph-identity for hero/wall/bush/water/door/npc/beacon/enemy/sword/telegraph
+  together — the new file's job is specifically the one kind that combination is missing (`Chest`),
+  plus the `ColorMode`/`NO_COLOR` end-to-end checks — alternatives: authoring a new fixture room
+  just for this test (out of scope: T17 does not ask for new content), asserting glyph-identity
+  without ever exercising `Chest` at all (leaves a real gap in RISKS #10 coverage).
+
 
 ## ARCHITECT (2026-09-13)
 
@@ -654,3 +714,121 @@ Appended by agents whenever they choose between options without a human.
   caught the `walkable`/`block_free` bug — is false; that narrower claim is accurate. The test itself is
   now extended (this round) to actually drive an enemy at the block and assert it never stands there, so the
   name and the coverage agree.
+
+## PLAN phase 6 (2026-09-14)
+
+- [phase-06/plan] `--unicode` is withdrawn: the flag is removed from the CLI and `GlyphSet::Unicode` is
+  deleted, so `GlyphSet` keeps `Ascii` alone — why: §4 permits only characters of *verified* width, and
+  every Unicode block that would actually look better than ASCII (Box Drawing, Geometric Shapes, Block
+  Elements, arrows, card suits, most Miscellaneous Symbols) is `East_Asian_Width=Ambiguous`, i.e. two
+  columns wide under a CJK locale or a terminal's "ambiguous = wide" setting, which shears the 24x16 grid
+  that depends on a tile being exactly two columns; the unambiguously Neutral blocks are Latin Extended
+  (looks like letters, no improvement), IPA (same) and Runic (missing from common macOS monospace fonts,
+  so tofu — strictly worse than ASCII); and verifying a width class in-repo would need `unicode-width`,
+  which the fixed dependency set excludes — alternatives: ship an Ambiguous-width set and accept the
+  shear risk; ship a Latin-Extended set that is complete but pointless; keep the flag as a silent alias
+  of ASCII (the "half-populated" outcome RISKS #15 exists to prevent). This is a named deviation from
+  §12's flag list, pre-authorised by RISKS #15 and the phase-6 roadmap deliverable ("or the flag is
+  withdrawn"); it must be carried into phase 7's verification report and `docs/user/cli.md`.
+- [phase-06/plan] Save I/O reaches `App` through a required `Box<dyn SaveIo>` constructor argument
+  (`FileSaveIo` injected by `main`, `MemorySaveIo` by tests) rather than free `store`/`load` calls made
+  from the loop as ARCHITECTURE sketches — why: it keeps the autosave *policy* in `app`, where
+  ARCHITECTURE itself puts it ("turns GameEvents into UI effects and autosave calls"), while the
+  filesystem stays in one injectable place; making it a required argument (not a defaulted one) means
+  `main` cannot silently ship a build that never saves; and `MemorySaveIo` gives every existing headless
+  test real save semantics with zero disk I/O, which is what lets the retry-after-death tests survive the
+  deletion of `App::checkpoint` — alternatives: free functions called from `main` with `App` emitting
+  request/response messages (pure, but a two-way round trip through `main` for every Continue and backup
+  restore); a defaulted in-memory port (smaller test diff, but a `main`-forgot-to-inject bug would be
+  invisible).
+- [phase-06/plan] `Mode::SaveProblem` is added beyond ARCHITECTURE's mode list — why: §10 requires the UI
+  to *offer* backup restore or a new game on a corrupt or future-version slot, which is a screen with its
+  own two item lists; folding it into `MainMenu` would mean a second cursor and a conditional item list
+  inside the menu overlay — alternatives: a `MainMenu` sub-state; a modal message with fixed keys (needs
+  new bindings in `input.rs`, which §5 and RISKS #6 argue against).
+- [phase-06/plan] A New Game started over a `FutureVersion` slot plays with saving disabled (each autosave
+  returns `RefusedFutureVersion`, surfaced once in the message row and once in the diagnostics), instead
+  of ARCHITECTURE's "New Game into a differently named slot after explicit confirmation" — why: a second
+  slot contradicts §2's "exactly one save slot", and §10's actual requirement is only that the newer file
+  is never overwritten, which this satisfies — alternatives: a second slot (contradicts §2); refusing to
+  start a new game at all (strands the player with no way to play).
+- [phase-06/plan] The seed is not stored in the save file; a continued run is seeded from `Config` as
+  today — why: §10's save list does not include it, and enemies respawn on load anyway, so the RNG stream
+  a save was written under has no observable carry-over — alternatives: store the seed and have `--seed`
+  override it (one more field and one more precedence rule for no gained guarantee); store the raw RNG
+  state (contradicts §10, which excludes transient combat state).
+- [phase-06/plan] `boss_defeated` is stored explicitly even though it is derivable from `flags`, and
+  reconciled one-way on restore (`true` re-inserts the boss spawn's `defeat_flag` if missing) — why: §10
+  names "перемогу над босом" as a stored field, and the one-way reconciliation means the redundancy can
+  never disagree in the direction that matters (a defeated boss respawning) — alternatives: derive it from
+  `flags` alone (smaller, but the save no longer literally contains what §10 lists).
+- [phase-06/plan] "In combat", for the purpose of refusing a manual save, is
+  `hero.attack.is_some() || tick < hero.invuln_until || enemies.iter().any(|e| e.alive)` — why: "a live
+  enemy is in the room" is the conservative reading and is stable under AI changes, and the swing and
+  invulnerability terms cover the tail of a fight in a room that has just been cleared — alternatives: an
+  AI-state-based definition (breaks whenever a state machine changes); a "took damage in the last N ticks"
+  timer (a fourth timing constant for no extra safety).
+- [phase-06/plan] Tests get a hand-rolled `ScratchDir` helper over `std::env::temp_dir()` rather than the
+  `tempfile` crate — why: the dependency set is fixed (§8, RISKS #16, ADR 0003/0006) and the helper is
+  ~20 lines with a `Drop` that removes the tree — alternatives: add `tempfile` as a dev-dependency (a new
+  version-skew surface and a DECISIONS entry for a 20-line need); write into a fixed path under `target/`
+  (breaks under parallel test threads).
+- [phase-06/plan] `App::checkpoint: GameState` is deleted and retry-after-death restores the save slot;
+  `tests/mode_machine.rs`'s two checkpoint tests are rewritten to assert the new, stronger guarantee
+  rather than removed — why: the phase-6 deliverable requires the death checkpoint to be repointed at the
+  save file, and for a room transition the autosave holds the same position the old in-memory checkpoint
+  did, so the rewritten assertions are supersets of the old ones — alternatives: keep both (two sources of
+  truth for "where does retry send the player"); keep the checkpoint and save only on top of it (the
+  in-memory copy would still win after a restart, which is the bug §10 exists to prevent).
+- [phase-06/plan] The `gameboy` theme uses four `Color::Indexed` 256-colour greens and `ansi` uses only
+  the 16 named ANSI colours — why: §4 asks for "чотири відтінки зеленого" as the main theme *and* an ANSI
+  16-colour palette as a separate provision, which is exactly a 256-colour primary with a 16-colour
+  fallback; the 16 named colours contain at most two greens — alternatives: truecolor `Color::Rgb` (worse
+  terminal support than indexed, and no closer to the spec); two greens plus two grays under `ansi` only
+  (fails "four shades of green").
+- [phase-06/plan] `ColorMode::Never` is implemented as `Color::Reset` for every kind inside `Theme`,
+  rather than a branch at each call site — why: it is one place, it makes "no SGR colour is written"
+  structurally true for the HUD, scene and overlays at once, and it keeps `render::draw`'s signature
+  unchanged — alternatives: strip styles in `main` before drawing (ratatui gives no such hook); a
+  `ColorMode` parameter threaded through every draw function (more call sites, same effect).
+
+## PHASE 6 — REVIEW FIXES, round 1 (2026-09-14)
+
+- [phase-06/review-fix-r1] Fixed the MAJOR finding (criterion 7 under-tested): added
+  `tests/save.rs::restore_respawns_every_authored_enemy_at_full_health` (kills one of
+  `room.stone_circle`'s two authored `Bat`s before capture, asserts both come back `alive` at
+  `tuning::BAT_HP` on their authored tiles) and
+  `::restore_resets_an_undefeated_boss_to_its_arena_entry_state` (captures the boss mid-fight —
+  `hp: 1`, `AiState::BossVulnerable { phase: 2, .. }`, `boss_defeated: false` — and asserts restore
+  puts it back at its authored `at: (18, 8)`, `tuning::BOSS_HP`, and the same
+  `AiState::BossStalk { phase: 1, .. }` a fresh `enter_room()` produces) — why: the previous single
+  test for this criterion only proved the *defeated*-boss-stays-gone half; "respawns enemies" and
+  "resets boss progress to arena entry" (the mid-fight case) had no assertion anywhere.
+- [phase-06/review-fix-r1] Fixed minor #1: `round_trip_preserves_every_field` now inserts the boss
+  spawn's `defeat_flag` into `progress.flags` before capture and asserts `save.game.boss_defeated`
+  is `true` both right after `capture` and after a store/load round trip — why: only the restore
+  direction of the `boss_defeated` <-> `flags` reconciliation was pinned; the capture direction
+  (`boss_defeat_flag(world)` in `src/save.rs`) could have silently regressed.
+- [phase-06/review-fix-r1] Fixed minor #2: `App::start_new_game()` now clears a `Usable` slot to
+  `Empty` before resetting `state`/`tick_counter`; `Corrupt`/`FutureVersion` slots are left as they
+  are. Added `tests/save.rs::retry_before_first_autosave_after_a_deliberate_new_game_never_resurrects_the_abandoned_run`
+  — why: only `Usable` creates a resurrection risk (`apply_game_over`'s `Confirm` arm calls
+  `try_restore` only for `Usable`; `Corrupt`/`FutureVersion` already fall into the same "start
+  fresh" branch as `Empty`), so clearing those too would only make `continue_label`/the message row
+  misreport a real on-disk problem as "no save yet" for no safety gain — alternatives: the review's
+  literal "reset on every deliberate new-game path" (clears information that `Corrupt`/
+  `FutureVersion` retry doesn't need clearing to be safe).
+- [phase-06/review-fix-r1] Fixed minor #3: `save::commit` now probes the existing `save.json` with
+  `load_file` first and only copies it to `.bak` when the outcome is `Ok` or `FutureVersion`,
+  skipping the copy when it is `Corrupt`. Added
+  `tests/save.rs::commit_does_not_promote_a_corrupt_save_file_over_a_good_backup` — why: the
+  unconditional copy meant the first store after a corrupt `save.json` (including right after the
+  player uses `Mode::SaveProblem`'s "Restore backup" and keeps playing) destroyed the one retained
+  valid backup by promoting the corrupt file over it.
+- [phase-06/review-fix-r1] The nit (manual save reads "combat" for the post-load 2s invulnerability
+  window even while `Mode::Paused` freezes the clock) is left as-is — why: the review itself framed
+  the fix as optional, `docs/user/controls.md`'s Save bullet already documents the invulnerability
+  case in the refusal message, and splitting the timer into a second field is real surface area
+  (`GameState`, `restore`, the in-combat predicate, its tests) for a scenario that self-resolves in
+  ≤2 s of play with no data loss — alternatives: a separate `post_load_safe_until` field (the
+  review's own suggested fix, deferred as unnecessary complexity for this phase).

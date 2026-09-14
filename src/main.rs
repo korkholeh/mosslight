@@ -17,6 +17,7 @@ use mosslight::game::tuning::INPUT_EVENT_HARD_CAP;
 use mosslight::game::{Action, World};
 use mosslight::input::{apply_overflow_policy, coalesce, drain_ready, map_key, EventSource};
 use mosslight::render::{self, Theme};
+use mosslight::save::FileSaveIo;
 use mosslight::terminal::{
     self, install_panic_hook, CrosstermOps, Diagnostics, Probe, SignalFlags, TerminalGuard,
     TerminalOps,
@@ -132,8 +133,9 @@ fn run(config: &Config, diagnostics: &mut Diagnostics, world: World) -> i32 {
         }
     };
 
-    let mut app = App::new(config, Rc::new(world));
-    let theme = Theme::new(config.theme);
+    let io = Box::new(FileSaveIo::new(config.save_dir.clone()));
+    let mut app = App::new(config, Rc::new(world), io);
+    let theme = Theme::new(config.theme, config.color);
     let mut pacer = Pacer::new(config.fps.as_u32());
     let mut last_instant = Instant::now();
     // Simulation actions carry over between iterations until a step actually consumes them; see
@@ -178,6 +180,9 @@ fn run(config: &Config, diagnostics: &mut Diagnostics, world: World) -> i32 {
             .min(u128::from(u64::MAX)) as u64;
         last_instant = now;
         let due = advance_iteration(&mut app, &mut pacer, &mut pending, &actions, elapsed_ns);
+        for line in app.take_diagnostics() {
+            diagnostics.push(line);
+        }
 
         if due.draw && app.take_dirty() {
             let draw_result = term.draw(|frame| render::draw(frame, &app, theme));
