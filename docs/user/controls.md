@@ -6,6 +6,7 @@ protocols are used anywhere, so this works identically over a plain SSH session.
 | Action | Keys | Available in |
 |---|---|---|
 | Move (4-directional, no diagonals) | Arrow keys, or W/A/S/D | Playing |
+| Move the menu cursor (Up/Down only; Left/Right do nothing here) | Arrow keys, or W/S | Main menu |
 | Attack (sword) | J or Space | Playing |
 | Use lantern | K | Playing |
 | Interact | E or Enter | Playing |

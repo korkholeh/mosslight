@@ -30,10 +30,17 @@ immediately after spawning can land while the shell is still in canonical/echo m
 mosslight has enabled raw mode, and gets consumed as ordinary shell input instead of reaching the
 program.
 
-**Fix:** run the script on a real, local terminal rather than inside a sandbox with no controlling
-TTY. `tests/terminal_guard.rs` is the automated, PTY-free proof of the restoration ordering and
-does not depend on a real pty at all; treat the shell script as a manual, host-run confirmation
-only (see `docs/dev/testing.md`).
+**Fix:** confirm the script pins the pty size (`stty rows 24 columns 80`) before the binary starts
+and gives the game a settle delay before sending the first key. A parent shell without a
+controlling TTY is *not* itself the problem — `expect`'s `spawn` allocates a fresh, sized pty for
+the child either way, and all three scripts have been run to completion in exactly such an
+environment (`docs/dev/verification-report.md` has the transcripts). An earlier phase-7 report
+blamed the sandbox for what turned out to be four bugs in the scripts themselves; if a script hangs
+now, suspect the script, not the environment.
+
+`tests/terminal_guard.rs` is the automated, PTY-free proof of the restoration ordering and does not
+depend on a real pty at all; the shell script is a manual, host-run confirmation on top of it (see
+`docs/dev/testing.md`).
 
 ## Game refuses to start with a one-line message and exits with code 2
 

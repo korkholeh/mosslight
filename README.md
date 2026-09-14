@@ -4,29 +4,42 @@ A single-player, top-down terminal adventure. The forest lighthouse has gone dar
 ancient ember in the flooded sanctuary and relight it. Runs locally and over an interactive SSH
 session with a PTY. macOS and Linux only.
 
-## Build
+## Install
+
+There is no published release artifact — build from source. You need the Rust toolchain
+(`rustup`); `rust-toolchain.toml` pins 1.98.1 and `rustup` selects it automatically.
 
 ```sh
+git clone https://github.com/korkholeh/mosslight
+cd mosslight
 cargo build --release --locked
 ```
 
-Toolchain is pinned in `rust-toolchain.toml` (Rust 1.98.1); `Cargo.lock` is committed and every
-command should pass `--locked`.
+The binary is then `./target/release/mosslight`. To put it on your `PATH` instead:
+
+```sh
+cargo install --path . --locked
+```
+
+`Cargo.lock` is committed and every command passes `--locked`.
 
 ## Run
 
 ```sh
 cargo run --release
-mosslight --ascii --color never --fps 10
-mosslight --theme mono --save-dir /tmp/mosslight-scratch
+./target/release/mosslight --ascii --color never --fps 10
+./target/release/mosslight --theme mono --save-dir /tmp/mosslight-scratch
 ```
+
+(Write `mosslight` in place of `./target/release/mosslight` if you ran `cargo install`.)
 
 The game refuses to start without an interactive terminal (stdin and stdout must both be a TTY,
 and `TERM` must not be unset or `dumb`) and exits with a one-line explanation before touching raw
 mode. When testing by hand, pass `--save-dir` to a scratch directory so a manual run cannot
 overwrite a real save.
 
-Full CLI reference: `docs/user/cli.md`. Full key map: `docs/user/controls.md`.
+Start here if you are playing rather than hacking: **`docs/user/README.md`** — it walks the pages in
+order (CLI reference, key map, SSH/tmux).
 
 ## Controls
 
@@ -76,9 +89,10 @@ This is the gate every phase must pass; CI (`.github/workflows/ci.yml`) runs it 
 `ubuntu-latest` and `macos-latest`. See `docs/dev/development.md` for setup/build/debug,
 `docs/dev/testing.md` for the test layers, `docs/dev/loop-and-modes.md` for the loop and
 mode-machine architecture, `docs/dev/architecture.md` for a full summary of the module map, the
-pure-core boundary, the tick model and the run-length model, `docs/dev/troubleshooting.md` for
-symptom-to-fix, `docs/dev/verification-report.md` for what was actually checked and how, and
-`.autodev/ARCHITECTURE.md` for the original design rationale.
+pure-core boundary, the tick model, the run-length model and where the build diverged from the
+original design, `docs/dev/content.md` for the RON schema and the validator's checks,
+`docs/dev/troubleshooting.md` for symptom-to-fix, `docs/dev/verification-report.md` for what was
+actually checked and how, and `.autodev/ARCHITECTURE.md` for the original design rationale.
 
 `scripts/terminal-restore-check.sh` drives a real PTY (via `expect`) through the normal-exit,
 `--debug-panic`, and live-resize paths and prints `stty -a` before/after each, for manually
@@ -87,7 +101,7 @@ misbehaves in a sandboxed environment.
 
 See `CHANGELOG.md` for user-visible changes.
 
-## Shipped state (phase 7 — final)
+## Shipped state (0.1.0)
 
 The game is completable end to end and saves progress: New Game through the nine-room overworld
 (sword, lantern, three NPCs, chests, four secrets including two heart containers, a step-plate
@@ -106,6 +120,7 @@ bytes while paused; CPU near-zero in both the play and pause windows via `script
 not just assumed. See `docs/dev/verification-report.md` for the numbers, the host they were measured
 on, and — just as importantly — an explicit list of what was **not** verified (Linux and a real
 networked SSH session are CI-only/untested here; the ~150 ms RTT playability check, Intel macOS and
-aarch64 Linux were never reachable from this development host). `HANDOFF.md` lists what a following
-session should look at first, including the weakest claim in this build: the run-length estimator's
-human-behaviour parameters are a reasoned model, not a measurement from real players.
+aarch64 Linux were never reachable from this development host). `.autodev/HANDOFF.md` is the
+briefing for whoever picks this up next — every check that ran, the decisions worth overruling, the
+known gaps and the risks still open. Its headline: the run-length estimator's human-behaviour
+parameters are a reasoned model, not a measurement, and nobody has played this game yet.

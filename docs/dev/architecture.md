@@ -171,6 +171,29 @@ version of this section; `scripts/terminal-restore-check.sh` is the host-run con
 | [0008](adr/0008-single-binary-packaging-and-ci-matrix.md) | One self-contained binary; `ubuntu-latest` + `macos-latest` CI as the portability check; other targets expected-but-unverified |
 | [0009](adr/0009-one-time-events-recorded-as-story-flags.md) | One-time world events (including boss defeat) recorded as story flags, not dedicated fields |
 
+## Where the build diverged from the design-of-record
+
+`.autodev/ARCHITECTURE.md` was written before any code existed. Where it and the code disagree, **the
+code is the truth** — this table is the reconciliation, so nobody reads the design doc and expects a
+signature or a flag that never shipped. Each row links the decision that moved it.
+
+| `.autodev/ARCHITECTURE.md` says | What was actually built | Why / where it is logged |
+|---|---|---|
+| `--log-file PATH` file sink, and a `--debug` overlay showing tick/fps/entity count/bytes per second ("Logging / observability") | **Neither exists.** The deferred diagnostic buffer flushed to stderr after the guard drops is the whole observability story, plus the hidden `--debug-panic` and `--debug-content PATH` flags. | No spec §13 check or §12 flag ever needed them. Phase 7 judged adding a new CLI surface in the final phase worse than documenting the gap. DECISIONS.md, PLAN phase 7. |
+| `--unicode` "may be deferred as a whole" | **Withdrawn entirely.** `--unicode` is a usage error (exit 2), not an accepted no-op. ASCII is the one glyph table. | Every Unicode block that would beat ASCII is `East_Asian_Width=Ambiguous` and can shear the fixed tile grid. `docs/user/cli.md`, "The Unicode decision"; ADR 0003's consequences. |
+| `content::load() -> Result<World, ContentError>` | `content::load() -> Result<World, Vec<ContentError>>` | The validator reports *every* defect in one pass rather than the first — that is what makes a broken world one edit-and-recheck cycle instead of N. `tests/content.rs::broken_three_defects` pins it. Phase 2. |
+| `render::draw(frame, app, theme: &Theme)` | `render::draw(frame, app, theme: Theme)` — by value | `Theme` is a small `Copy` enum, not a palette struct; a reference bought nothing. Phase 1. |
+| `Action` listed without `Help` | `Action::Help` exists (bound to `?`) | Help is reachable from MainMenu/Playing/Paused and needed its own semantic action. Phase 1. |
+| `save` sketched as free functions | `App` owns a `Box<dyn SaveIo>` port, with `FileSaveIo` and `MemorySaveIo` | Keeps the filesystem out of every test that only cares about *when* `App` saves. Already amended in `.autodev/ARCHITECTURE.md`'s component table; DECISIONS.md, PLAN phase 6. |
+| `--save-dir` "canonicalized and checked writable" | Created if missing and reported clearly if unusable; not canonicalized | Canonicalizing a not-yet-existing directory fails on both platforms; the writability failure surfaces at first write as a `StoreOutcome::Failed` diagnostic. Phase 6. |
+| Enemy AI as per-kind nested enums | One flat `AiState` enum covering all four kinds including the boss | Keeps every transition in one `match` in `game/ai.rs`. ADR 0004's phase-3 and phase-5 amendments. |
+
+Two assumed NFRs came out far under budget and are worth knowing before anyone optimises something
+that does not need it: the release binary is **2.3 MB** against an assumed 12 MB ceiling, and peak RSS
+across a measured play-plus-pause run was **3.5 MB** against an assumed 32 MB. The tuning constant
+`BOSS_HP` is 12, not the 8 phase 5 shipped — phase 7's balance pass raised it to move the run-length
+estimate. Numbers and method: `docs/dev/verification-report.md`.
+
 ## Where to look next
 
 - `docs/dev/loop-and-modes.md` — the mode machine in full, every transition.
