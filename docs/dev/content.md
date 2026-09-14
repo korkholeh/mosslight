@@ -16,6 +16,7 @@ Room {
     rows: Vec<String>,           // 16 rows of 24 characters — the tile grid, authored as text
     doors: Vec<Door>, spawns: Vec<Spawn>, chests: Vec<Chest>, npcs: Vec<Npc>,
     enemies: Vec<EnemySpawn>, puzzles: Vec<Puzzle>, torches: Vec<Torch>, plates: Vec<Plate>,
+    blocks: Vec<Block>, beacons: Vec<Beacon>,
     hint: Option<String>,        // shown in the message row on entry
 }
 Door    { id, at: Pos, to_room: RoomId, to_spawn: SpawnId, lock: Option<LockKind>, two_way: bool }
@@ -25,19 +26,54 @@ Npc     { id, at: Pos, dialogue: Vec<DialogueNode>, condition: Option<FlagId> }
 DialogueNode { text: String, sets_flag: Option<FlagId> }
 Torch   { id, at: Pos, reveals: Vec<Pos> }   // Hidden positions this room that become Floor once lit
 Plate   { id, at: Pos }                      // not solid — stepped on, not interacted with
-Puzzle  { id, kind: StepPlates | PushBlock | Switches, plates: Vec<PlateId>, reveals: Vec<Pos>, reward: Option<Reward> }
+Block   { id, at: Pos }                      // authored reset position only — live position is sim state
+Beacon  { id, at: Pos }                      // solid; the ending object, exactly one, in route.home
+EnemySpawn { kind: Slime | Bat | Guardian | Boss, at: Pos, patrol: Option<Vec<Pos>>,
+             drops: Option<Reward>, defeat_flag: Option<FlagId> }  // drops/defeat_flag: Boss only
+Puzzle  { id, kind: StepPlates | BlockOnPlates | TorchSequence,
+          plates: Vec<PlateId>, blocks: Vec<BlockId>, torches: Vec<TorchId>,
+          reveals: Vec<Pos>, reward: Option<Reward> }
 ```
 
-`doors`/`spawns`/`chests`/`npcs`/`enemies`/`puzzles`/`torches`/`plates`/`hint` are all
-`#[serde(default)]`, so a room that doesn't use one of them simply omits the field. `map_index` is
-`Some((col, row))` for the nine overworld rooms in their 3x3 grid, `None` for dungeon rooms
-(phase 5's six-room dungeon, and phase 4's own `room.sanctuary_gate` vestibule).
+`doors`/`spawns`/`chests`/`npcs`/`enemies`/`puzzles`/`torches`/`plates`/`blocks`/`beacons`/`hint`
+are all `#[serde(default)]`, so a room that doesn't use one of them simply omits the field.
+`map_index` is `Some((col, row))` for the nine overworld rooms in their 3x3 grid, `None` for the
+six dungeon rooms.
 
-An authored chest, NPC or torch **occupies its tile**: it is solid (blocks the hero and every
-enemy — `GameState::object_at`/`walkable`) and is acted on by facing it and pressing Interact or
-Use Lantern, mirroring the sword's one-tile hitbox. A `Plate` is the one object that is not solid;
-stepping onto it (not facing it) is what presses it (`game::puzzles::on_hero_moved`). `PuzzleKind`
-only implements `StepPlates` this phase — `PushBlock`/`Switches` are phase 5.
+An authored chest, NPC, torch or beacon **occupies its tile**: it is solid (blocks the hero and
+every enemy — `GameState::object_at`/`walkable`) and is acted on by facing it and pressing
+Interact or Use Lantern, mirroring the sword's one-tile hitbox. A `Plate` is not solid; stepping
+onto it (not facing it) is what presses it (`game::puzzles::on_hero_moved`). A `Block` is not an
+`ObjectKind` either — its `Room` entry is only the *reset* position; the live position is
+transient simulation state (`game::puzzles::PuzzleState.blocks`, reseeded on every room entry) —
+see "Puzzles" below. `EnemyKind::Boss` reuses every ordinary enemy mechanism (`Room::enemies`,
+`EnemyId`, the swing hit-list, `revealed_set`); `drops`/`defeat_flag` are only meaningful — and
+only validator-legal — on a `Boss` spawn (`BossFieldOnRegularEnemy`).
+
+### Puzzles
+
+Three kinds, all authored the same way (`Puzzle.reveals`/`reward` apply once solved, exactly like
+a `StepPlates` puzzle already did):
+
+- **`StepPlates`**: solved once every named plate has ever been pressed (pressure holds — stepping
+  off never un-presses it, so there is no ordering and no soft-lock).
+- **`BlockOnPlates`**: names exactly one `blocks` id and at least one `plates` id
+  (`BlockPuzzleShape` otherwise). Solved once every named plate currently holds a block — this one
+  is positional, so pushing the block *off* a plate un-solves the positional check (though a
+  puzzle already recorded solved stays solved; see `game/puzzles.rs`'s doc comment). Pushing a
+  block is a hero movement branch in `game::state::update`, gated by the single shared legality
+  predicate `game::puzzles::block_push_target` — the same function the validator's reachability
+  search calls, so the two can never disagree about what a push does.
+- **`TorchSequence`**: names at least two distinct, resolving torches, none of which carries its
+  own `reveals` (`TorchSequenceShape` otherwise — the puzzle owns the reveal). Lighting them in the
+  named order advances a transient in-room sequence; lighting any other torch of that puzzle resets
+  the sequence to empty (`GameEvent::PuzzleReset`) — free to retry, never a dead end. A torch or
+  block may be claimed by at most one puzzle in its room (`PuzzleObjectClaimedTwice`).
+
+Everything a puzzle changes inside a room (pressed plates, live block positions, the in-progress
+torch sequence) is transient: `GameState::enter_room` reseeds it from the authored content on
+every room entry, so leaving and returning resets an unsolved puzzle to its authored start. Only
+`Progress::solved_puzzles` persists, and with it the puzzle's `reveals` and `reward`.
 
 Every content struct carries `#[serde(deny_unknown_fields)]`, so a typo'd field name (`lockk:` for
 `lock:`) is a parse error rather than a silently-ignored key — the field would otherwise just take
@@ -72,10 +108,17 @@ string delimiter, a bush tile inside a `rows` string must be written as `\"`.
 | `Chest` / `ChestOpen` | `C` / `c` | yes |
 | `Torch` / `TorchLit` | `t` / `T` | yes |
 | `Plate` / `PlatePressed` | `_` / `=` | no |
+| `Block` | `O` | yes (transient position) |
+| `Beacon` | `*` | yes |
+| `Boss` / `BossVulnerable` | `W` / `w` | yes |
 
 Paint order in `render/scene.rs`: tiles (a revealed `Hidden` draws as `Floor`) → plates → chests →
-NPCs → torches → the guardian danger cue → enemies → the sword → the hero, so the hero is never
-hidden and an object glyph is never hidden by the tile underneath it.
+NPCs → beacons → torches → blocks → the guardian/boss danger cue → enemies (a boss draws
+`BossVulnerable` while its `AiState` is `BossVulnerable`, `Boss` otherwise) → the sword → the hero,
+so the hero is never hidden and an object glyph is never hidden by the tile underneath it. A plate
+renders pressed if it is in `puzzle.pressed` *or* a block currently stands on it; a torch renders
+lit if it is in `progress.lit_torches`, in the in-progress `puzzle.sequence`, or belongs to an
+already-solved `TorchSequence`.
 
 ## Ids
 
@@ -111,10 +154,10 @@ adjacent to that door) is `spawn.<x>.north`.
 `content::validate(&world)` (called from tests, from CI, and from `main`'s startup preflight)
 collects every violation of the spec §7 list rather than stopping at the first:
 
-- **Structure**: room/door/spawn/chest/npc/puzzle/torch/plate ids are globally unique; overworld `map_index`
-  values are unique; every door's `to_room`/`to_spawn` resolve, and so does `start`/`route.home`;
-  every spawn is in bounds, walkable, and not itself a door tile; every `Door` tile has exactly one
-  matching door entry, and every door entry sits on a `Door` tile.
+- **Structure**: room/door/spawn/chest/npc/puzzle/torch/plate/block/beacon ids are globally unique;
+  overworld `map_index` values are unique; every door's `to_room`/`to_spawn` resolve, and so does
+  `start`/`route.home`; every spawn is in bounds, walkable, and not itself a door tile; every
+  `Door` tile has exactly one matching door entry, and every door entry sits on a `Door` tile.
 - **Reciprocity**: for a two-way door `A` targeting spawn `s`, there must be a two-way door `B` in
   the target room back to `A`'s room, with `s` orthogonally adjacent to `B`'s position and `B`'s
   own target spawn orthogonally adjacent to `A`'s position — i.e. walking through either door lands
@@ -137,33 +180,49 @@ collects every violation of the spec §7 list rather than stopping at the first:
 - **Enemy spawns** (`check_enemy_spawns`, phase 3): every `EnemySpawn.at` and every waypoint in its
   optional `patrol` must be in bounds, walkable, not a hazard tile and not a `Tile::Door`, else
   `ContentError::EnemySpawnNotWalkable` / `EnemyPatrolInvalid`. `tests/fixtures/broken_enemy_spawn.ron`
-  (a spawn placed inside a wall) proves the check rejects. `EnemyKind` is `Slime | Bat | Guardian`
-  (`Boss` is not a content-authorable kind — it belongs to the phase-5 boss arena).
-- **Object placement** (`check_object_placement`, phase 4): every chest/npc/torch/plate `at` must be
-  in bounds, sit on plain `Tile::Floor`, and not coincide with a spawn, an enemy spawn, or a patrol
-  waypoint (`ObjectNotOnFloor`); at most one object may occupy a tile (`ObjectTileConflict`).
-- **NPC conditions** (`check_npc_conditions`, phase 4): every `Npc.condition` flag and every
-  `LockKind::Flag` flag must be set by some `DialogueNode.sets_flag` somewhere in the world, or it
-  could never be satisfied (`FlagNeverSet`).
-- **Puzzles and torches** (`check_puzzles`/`check_torches`, phase 4): every `Puzzle.plates` id must
-  name a plate in the same room (`UnknownPlate`); every `Puzzle.reveals`/`Torch.reveals` position
-  must be a `Tile::Hidden` tile in that room (`RevealNotHidden`).
-- **Secrets** (`check_secrets`, phase 4): a secret chest (`Chest.secret`) may not hold a
-  route-critical reward — `Sword`, `Lantern`, or `Ember` (`SecretRouteCritical`) — and its room may
-  not lie on `main_route_rooms` (`SecretOnMainRoute`), the union of every room on any shortest path
-  (plain room-adjacency graph, locks ignored) from `start.room` to each route-critical target (the
-  rooms holding a non-secret `Sword`/`Lantern`/`Ember` chest, plus `route.goal` and `route.home`) —
-  a secret must never gate progress.
+  (a spawn placed inside a wall) proves the check rejects. `EnemyKind` is
+  `Slime | Bat | Guardian | Boss`.
+- **Object placement** (`check_object_placement`): every chest/npc/torch/plate/block/beacon `at`
+  must be in bounds, sit on plain `Tile::Floor`, and not coincide with a spawn, an enemy spawn, or
+  a patrol waypoint (`ObjectNotOnFloor`); at most one object may occupy a tile
+  (`ObjectTileConflict`).
+- **NPC conditions** (`check_npc_conditions`): every `Npc.condition` flag and every `LockKind::Flag`
+  flag must be set by some `DialogueNode.sets_flag` or a boss's `defeat_flag` somewhere in the
+  world, or it could never be satisfied (`FlagNeverSet`).
+- **Puzzles and torches** (`check_puzzles`/`check_torches`): every `Puzzle.plates` id must name a
+  plate in the same room (`UnknownPlate`); every `Puzzle.reveals`/`Torch.reveals` position must be
+  a `Tile::Hidden` tile in that room (`RevealNotHidden`); per-kind shape rules for
+  `BlockOnPlates`/`TorchSequence` (`BlockPuzzleShape`/`TorchSequenceShape`, see "Puzzles" above);
+  no torch or block claimed by two puzzles (`PuzzleObjectClaimedTwice`).
+- **Boss** (`check_boss`): at most one `EnemyKind::Boss` spawn world-wide (`MultipleBosses`);
+  `drops`/`defeat_flag` only on a `Boss` spawn (`BossFieldOnRegularEnemy`); a boss that drops a
+  reward must carry a `defeat_flag` (`BossDropMissingFlag`), or the reward could never be recorded
+  as collected.
+- **Beacon** (`check_beacon`): exactly one `Beacon` world-wide (`BeaconMissing`/`MultipleBeacons`),
+  and it must sit in `route.home` (`BeaconNotAtHome`).
+- **Secrets** (`check_secrets`): a secret chest (`Chest.secret`) may not hold a route-critical
+  reward — `Sword`, `Lantern`, or `Ember` (`SecretRouteCritical`) — and its room may not lie on
+  `main_route_rooms` (`SecretOnMainRoute`), the union of every room on any shortest path (plain
+  room-adjacency graph, locks ignored) from `start.room` to each route-critical target (the rooms
+  holding a non-secret `Sword`/`Lantern`/`Ember` chest or a boss dropping one of them, plus
+  `route.goal` and `route.home`) — a secret must never gate progress.
 
-Reachability (phase 4) is reveal-aware: `Loc` is now a `(RoomIdx, Pos)` tile, not a room/component
-pair, so "is object X reachable" is directly "some orthogonal neighbour of X's tile is in the
-reached set" — the right question now that chests/NPCs/torches are solid. Alongside the item
-fixpoint (`Items { lantern, ember }`), `settle` now also grows a `RevealState`: a reachable torch is
-lit once the lantern is held (its `reveals` become walkable next iteration); a reachable NPC whose
-condition is satisfied contributes its dialogue's `sets_flag` values; a `StepPlates` puzzle counts
-as solved once every one of its plates is in the reached tile set. A `LockKind::Flag` door is now
-traversable once its flag is in the reached set's flags, instead of always being reported
-`LockNeverUnlockable`.
+Reachability is reveal-aware: `Loc` is a `(RoomIdx, Pos)` tile, not a room/component pair, so "is
+object X reachable" is directly "some orthogonal neighbour of X's tile is in the reached set" — the
+right question given chests/NPCs/torches/beacons are solid. Alongside the item fixpoint
+(`Items { lantern, ember }`), `settle` grows a `RevealState`: a reachable torch is lit once the
+lantern is held (its `reveals` become walkable next iteration); a reachable NPC whose condition is
+satisfied contributes its dialogue's `sets_flag` values; a reachable boss grants its `drops` and
+`defeat_flag` (the validator cannot simulate the fight, so this asserts only that the arena is
+reachable and the reward/flag are wired — `tests/boss.rs`/`tests/playthrough.rs` prove the fight
+itself); a `StepPlates` puzzle solves once every plate is in the reached tile set; a
+`TorchSequence` solves once the lantern is held and every named torch has a reached orthogonal
+neighbour (order is irrelevant to reachability, precisely because a wrong order costs nothing); a
+`BlockOnPlates` puzzle solves via an *exact* one-block push search —
+`ReachabilitySearch`'s `block_puzzle_solvable` BFS over `(block_pos, hero_pos)`, using the same
+`game::puzzles::block_push_target` the simulation itself calls, bounded by
+`(ROOM_W * ROOM_H)^2` states — reporting `BlockPuzzleUnsolvable` if no push path reaches any named
+plate. A `LockKind::Flag` door is traversable once its flag is in the reached set's flags.
 
 ## Reading validator output
 
@@ -196,3 +255,14 @@ Phase 4 adds one fixture per new check: `broken_object_on_wall.ron`, `broken_obj
 `broken_secret_on_main_route.ron`, `broken_secret_route_critical.ron` — each `base.ron` plus exactly
 the one defect its name says, asserted in `tests/content.rs` against the specific `ContentError`
 variant it exists to trigger.
+
+Phase 5 adds one fixture per new check, the same way: `broken_block_puzzle_shape.ron` (a
+`BlockOnPlates` puzzle naming no block), `broken_torch_sequence_unknown.ron` (a `TorchSequence`
+naming torches that don't resolve), `broken_boss_field_on_slime.ron` (`drops`/`defeat_flag` on a
+`Slime` spawn), `broken_beacon_not_at_home.ron` (a beacon outside `route.home`),
+`broken_block_unsolvable.ron` (a `BlockOnPlates` puzzle whose plate sits in a walled-off pocket no
+push path can reach), `broken_ember_behind_unreachable_boss.ron` (a boss carrying the ember behind
+a `SmallKey` door with no key anywhere). None of these needs `base.ron`'s beacon — `check_beacon`
+runs unconditionally alongside every other check, so an incidental `BeaconMissing` on an
+unrelated fixture is tolerated by `tests/content.rs`'s `.any()`-style assertions, exactly like the
+pre-existing fixtures that predate `check_beacon` and still have none.

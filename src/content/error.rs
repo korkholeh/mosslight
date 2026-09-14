@@ -17,6 +17,8 @@ pub enum IdKind {
     Puzzle,
     Torch,
     Plate,
+    Block,
+    Beacon,
 }
 
 impl fmt::Display for IdKind {
@@ -30,6 +32,8 @@ impl fmt::Display for IdKind {
             IdKind::Puzzle => "puzzle",
             IdKind::Torch => "torch",
             IdKind::Plate => "plate",
+            IdKind::Block => "block",
+            IdKind::Beacon => "beacon",
         };
         f.write_str(s)
     }
@@ -145,6 +149,50 @@ pub enum ContentError {
     },
     SecretRouteCritical {
         chest: String,
+    },
+    /// A `BlockOnPlates` puzzle does not name exactly one block, or names no plates.
+    BlockPuzzleShape {
+        room: String,
+        puzzle: String,
+    },
+    /// A `TorchSequence` puzzle names fewer than two torches, a duplicate, an unknown torch, or a
+    /// torch that also carries its own `reveals` (the puzzle owns the reveal instead).
+    TorchSequenceShape {
+        room: String,
+        puzzle: String,
+    },
+    /// A torch or block is named by more than one puzzle in its room.
+    PuzzleObjectClaimedTwice {
+        room: String,
+        what: String,
+    },
+    /// The one-block push search found no path from a `BlockOnPlates` puzzle's block to any of
+    /// its plates.
+    BlockPuzzleUnsolvable {
+        room: String,
+        puzzle: String,
+    },
+    /// `EnemySpawn::{drops,defeat_flag}` is set on a spawn that is not `EnemyKind::Boss`.
+    BossFieldOnRegularEnemy {
+        room: String,
+    },
+    /// A boss spawn drops a reward but carries no `defeat_flag` to record that it was collected.
+    BossDropMissingFlag {
+        room: String,
+    },
+    /// More than one `EnemyKind::Boss` spawn exists world-wide.
+    MultipleBosses {
+        count: usize,
+    },
+    /// No `Beacon` is authored anywhere, though the game needs exactly one ending object.
+    BeaconMissing,
+    /// A beacon exists but not in `route.home`.
+    BeaconNotAtHome {
+        room: String,
+    },
+    /// More than one `Beacon` is authored world-wide.
+    MultipleBeacons {
+        count: usize,
     },
 }
 
@@ -280,6 +328,40 @@ impl fmt::Display for ContentError {
             ContentError::SecretRouteCritical { chest } => {
                 write!(f, "secret chest '{chest}' contains a route-critical reward")
             }
+            ContentError::BlockPuzzleShape { room, puzzle } => write!(
+                f,
+                "{room}: puzzle '{puzzle}' must name exactly one block and at least one plate"
+            ),
+            ContentError::TorchSequenceShape { room, puzzle } => write!(
+                f,
+                "{room}: puzzle '{puzzle}' must name at least two distinct torches, none of them self-revealing"
+            ),
+            ContentError::PuzzleObjectClaimedTwice { room, what } => write!(
+                f,
+                "{room}: {what} is claimed by more than one puzzle"
+            ),
+            ContentError::BlockPuzzleUnsolvable { room, puzzle } => write!(
+                f,
+                "{room}: puzzle '{puzzle}' has no push path from its block to any of its plates"
+            ),
+            ContentError::BossFieldOnRegularEnemy { room } => write!(
+                f,
+                "{room}: an enemy spawn has 'drops' or 'defeat_flag' set but is not a Boss"
+            ),
+            ContentError::BossDropMissingFlag { room } => write!(
+                f,
+                "{room}: a boss spawn drops a reward but has no defeat_flag"
+            ),
+            ContentError::MultipleBosses { count } => {
+                write!(f, "{count} Boss spawns exist; exactly one is allowed")
+            }
+            ContentError::BeaconMissing => write!(f, "no beacon is authored anywhere"),
+            ContentError::BeaconNotAtHome { room } => {
+                write!(f, "beacon in '{room}' does not sit in route.home")
+            }
+            ContentError::MultipleBeacons { count } => {
+                write!(f, "{count} beacons exist; exactly one is allowed")
+            }
         }
     }
 }
@@ -405,6 +487,34 @@ mod tests {
             ContentError::SecretRouteCritical {
                 chest: "chest.a".into(),
             },
+            ContentError::BlockPuzzleShape {
+                room: "room.a".into(),
+                puzzle: "puzzle.a".into(),
+            },
+            ContentError::TorchSequenceShape {
+                room: "room.a".into(),
+                puzzle: "puzzle.a".into(),
+            },
+            ContentError::PuzzleObjectClaimedTwice {
+                room: "room.a".into(),
+                what: "torch 'torch.a'".into(),
+            },
+            ContentError::BlockPuzzleUnsolvable {
+                room: "room.a".into(),
+                puzzle: "puzzle.a".into(),
+            },
+            ContentError::BossFieldOnRegularEnemy {
+                room: "room.a".into(),
+            },
+            ContentError::BossDropMissingFlag {
+                room: "room.a".into(),
+            },
+            ContentError::MultipleBosses { count: 2 },
+            ContentError::BeaconMissing,
+            ContentError::BeaconNotAtHome {
+                room: "room.a".into(),
+            },
+            ContentError::MultipleBeacons { count: 2 },
         ]
     }
 
@@ -441,6 +551,16 @@ mod tests {
                 ContentError::RevealNotHidden { what, .. } => what.clone(),
                 ContentError::SecretOnMainRoute { chest } => chest.clone(),
                 ContentError::SecretRouteCritical { chest } => chest.clone(),
+                ContentError::BlockPuzzleShape { puzzle, .. } => puzzle.clone(),
+                ContentError::TorchSequenceShape { puzzle, .. } => puzzle.clone(),
+                ContentError::PuzzleObjectClaimedTwice { room, .. } => room.clone(),
+                ContentError::BlockPuzzleUnsolvable { puzzle, .. } => puzzle.clone(),
+                ContentError::BossFieldOnRegularEnemy { room } => room.clone(),
+                ContentError::BossDropMissingFlag { room } => room.clone(),
+                ContentError::MultipleBosses { .. } => "Boss spawns".into(),
+                ContentError::BeaconMissing => "beacon".into(),
+                ContentError::BeaconNotAtHome { room } => room.clone(),
+                ContentError::MultipleBeacons { .. } => "beacons".into(),
             };
             if needle == "ember_required" {
                 assert!(text.contains("ember_required"), "{text}");
@@ -448,6 +568,10 @@ mod tests {
                 assert!(text.contains("map_index"), "{text}");
             } else if needle == "64-door limit" {
                 assert!(text.contains("64-door limit"), "{text}");
+            } else if needle == "Boss spawns" {
+                assert!(text.contains("Boss spawns"), "{text}");
+            } else if needle == "beacons" {
+                assert!(text.contains("beacons"), "{text}");
             } else {
                 assert!(text.contains(&needle), "{text} did not mention {needle}");
             }

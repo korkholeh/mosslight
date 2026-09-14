@@ -18,7 +18,7 @@ fn world() -> Rc<mosslight::game::World> {
 
 /// A `GameState` dropped directly into `room_id` at `pos`, bypassing the normal walk from the
 /// start room — these tests are about a single room's mechanics, not full traversal (that is
-/// `main_route_milestones_happen_in_order`, below). `spawn_enemies` rebuilds the room's enemies
+/// `main_route_milestones_happen_in_order`, below). `enter_room` rebuilds the room's enemies
 /// and resets its transient plate state, exactly as a real door transition would.
 fn state_in(room_id: &str, pos: mosslight::game::Pos) -> GameState {
     let world = world();
@@ -28,7 +28,7 @@ fn state_in(room_id: &str, pos: mosslight::game::Pos) -> GameState {
     let mut state = GameState::new(1, world);
     state.room = room;
     state.hero.pos = pos;
-    state.spawn_enemies();
+    state.enter_room();
     state
 }
 
@@ -420,15 +420,15 @@ fn step_plates_puzzle_solves_in_any_press_order() {
     let mut tick = 0u64;
 
     move_steps(&mut state, &mut tick, Action::MoveWest, 2); // -> plate.mill2 @ (10,9)
-    assert_eq!(state.plates.pressed.len(), 1);
+    assert_eq!(state.puzzle.pressed.len(), 1);
     assert!(state.progress.solved_puzzles.is_empty());
 
     move_steps(&mut state, &mut tick, Action::MoveWest, 5); // -> plate.mill1 @ (5,9)
-    assert_eq!(state.plates.pressed.len(), 2);
+    assert_eq!(state.puzzle.pressed.len(), 2);
     assert!(state.progress.solved_puzzles.is_empty());
 
     move_steps(&mut state, &mut tick, Action::MoveEast, 10); // -> plate.mill3 @ (15,9)
-    assert_eq!(state.plates.pressed.len(), 3);
+    assert_eq!(state.puzzle.pressed.len(), 3);
     assert!(
         !state.progress.solved_puzzles.is_empty(),
         "all three plates pressed must solve the puzzle"
@@ -458,12 +458,12 @@ fn leaving_the_room_mid_puzzle_resets_the_pressed_plates() {
     let mut state = state_in("room.old_mill", Pos { x: 5, y: 10 });
     let mut tick = 0u64;
     move_steps(&mut state, &mut tick, Action::MoveNorth, 1); // -> plate.mill1 @ (5,9)
-    assert_eq!(state.plates.pressed.len(), 1);
+    assert_eq!(state.puzzle.pressed.len(), 1);
 
-    // `spawn_enemies` is exactly what a room transition runs (see `state::update`'s door branch)
+    // `enter_room` is exactly what a room transition runs (see `state::update`'s door branch)
     // — simulating leaving and returning without walking the whole way there.
-    state.spawn_enemies();
-    assert!(state.plates.pressed.is_empty());
+    state.enter_room();
+    assert!(state.puzzle.pressed.is_empty());
     assert!(state.progress.solved_puzzles.is_empty());
 }
 
@@ -476,7 +476,7 @@ fn a_solved_puzzle_stays_solved_after_leaving_and_returning() {
     move_steps(&mut state, &mut tick, Action::MoveEast, 5); // plate.mill3
     assert!(!state.progress.solved_puzzles.is_empty());
 
-    state.spawn_enemies(); // leave and return
+    state.enter_room(); // leave and return
     assert!(
         !state.progress.solved_puzzles.is_empty(),
         "solved puzzles persist across room re-entry"

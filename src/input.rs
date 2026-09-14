@@ -41,7 +41,8 @@ pub fn map_key(mode: Mode, key: KeyEvent) -> Option<Action> {
             | Mode::GameOver
             | Mode::Dialogue
             | Mode::Map
-            | Mode::Inventory => Some(Action::Confirm),
+            | Mode::Inventory
+            | Mode::Victory => Some(Action::Confirm),
             Mode::Playing => Some(Action::Interact),
         },
         _ => None,

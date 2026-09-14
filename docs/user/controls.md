@@ -9,12 +9,12 @@ protocols are used anywhere, so this works identically over a plain SSH session.
 | Attack (sword) | J or Space | Playing |
 | Use lantern | K | Playing |
 | Interact | E or Enter | Playing |
-| Confirm (menu selection, retry after death, or advance/close a dialogue line) | E or Enter | Main menu, Paused, Confirm-quit, Help, Game over, Dialogue |
+| Confirm (menu selection, retry after death, advance/close a dialogue line, or leave the victory screen) | E or Enter | Main menu, Paused, Confirm-quit, Help, Game over, Dialogue, Victory |
 | Map (opens from Playing, M or Esc closes it) | M | Playing, Map |
 | Inventory (opens from Playing, I or Esc closes it) | I | Playing, Inventory |
-| Pause / back | Esc | Playing (pauses), Paused (resumes), Help/Map/Inventory (closes), Dialogue (closes early), Confirm-quit (cancels), Game over (returns to main menu) |
+| Pause / back | Esc | Playing (pauses), Paused (resumes), Help/Map/Inventory (closes), Dialogue (closes early), Confirm-quit (cancels), Game over (returns to main menu), Victory (returns to main menu) |
 | Help | ? | Main menu, Playing, Paused |
-| Quit (asks for confirmation) | Q or Ctrl+C | Main menu, Playing, Paused, Game over |
+| Quit (asks for confirmation) | Q or Ctrl+C | Main menu, Playing, Paused, Game over, Victory |
 | Quit immediately (terminal too small to show a confirmation) | Q or Ctrl+C | Below the 60x24 minimum size |
 
 Notes:
@@ -43,3 +43,18 @@ Notes:
   sword/lantern/ember, the key count, current hearts, and any story flags learned so far.
 - Opening the Map, Inventory, or a dialogue pauses the simulation exactly like Esc does — nothing
   moves and no damage lands while one is open.
+- Moving into a movable block (`O`) pushes it one tile in that direction instead of blocking the
+  step, as long as the tile ahead of the block is clear floor — the same step cooldown applies, so
+  pushing costs no more than an ordinary step. A block cannot be pushed through a door, onto
+  another block, an enemy, or any other solid object.
+- Facing an unlit torch that is part of a lighting puzzle and pressing Use Lantern lights it only
+  if it is next in the puzzle's order; lighting one out of order snuffs every torch in that puzzle
+  back out (no penalty beyond retrying). Solving a puzzle — every plate held down, every block on
+  its plate, or every torch lit in order — is permanent; the room's transient state (pressed
+  plates, block positions, an in-progress torch order) resets if the hero leaves and returns
+  without finishing it.
+- Locked doors marked `SmallKey` in the dungeon cost one key to open; returning through the same
+  doorway afterward is always free.
+- Once the hero carries the ancient ember, facing the lighthouse's beacon (`*`) and pressing
+  Interact relights it and ends the run. Without the ember, the beacon only reports that it is
+  cold.

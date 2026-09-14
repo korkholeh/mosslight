@@ -29,15 +29,14 @@ World(
             ],
             doors: [
                 (id: "door.a.toB", at: (x: 23, y: 7), to_room: "room.b", to_spawn: "spawn.b.fromA", two_way: true),
-                
+
             ],
             spawns: [
                 (id: "spawn.a.start", at: (x: 2, y: 2)),
                 (id: "spawn.a.fromB", at: (x: 22, y: 7)),
-                
+
             ],
             chests: [(id: "chest.key", at: (x: 5, y: 5), contains: SmallKey)],
-            beacons: [(id: "beacon.a", at: (x: 10, y: 10))],
         ),
         (
             id: "room.b",
@@ -65,14 +64,15 @@ World(
             doors: [
                 (id: "door.b.fromA", at: (x: 0, y: 7), to_room: "room.a", to_spawn: "spawn.a.fromB", two_way: true),
                 (id: "door.b.toC", at: (x: 12, y: 15), to_room: "room.c", to_spawn: "spawn.c.fromB", lock: Some(SmallKey), two_way: true),
-                
+
             ],
             spawns: [
                 (id: "spawn.b.fromA", at: (x: 1, y: 7)),
                 (id: "spawn.b.fromC", at: (x: 12, y: 14)),
-                
+
             ],
             chests: [],
+            beacons: [(id: "beacon.b", at: (x: 5, y: 5))],
         ),
         (
             id: "room.c",
@@ -99,11 +99,11 @@ World(
             ],
             doors: [
                 (id: "door.c.fromB", at: (x: 12, y: 0), to_room: "room.b", to_spawn: "spawn.b.fromC", two_way: true),
-                
+
             ],
             spawns: [
                 (id: "spawn.c.fromB", at: (x: 12, y: 1)),
-                
+
             ],
             chests: [(id: "chest.ember", at: (x: 6, y: 6), contains: Ember)],
         ),

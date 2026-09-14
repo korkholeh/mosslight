@@ -7,7 +7,7 @@ use crate::game::entities::Pos;
 use crate::game::tuning::{ROOM_H, ROOM_W};
 
 use super::error::{ContentError, IdKind};
-use super::schema::{LockKind, PuzzleKind, Reward, Room, RoomIdx, Tile, World};
+use super::schema::{EnemyKind, LockKind, PuzzleKind, Reward, Room, RoomIdx, Tile, World};
 
 /// Maximum number of `SmallKey`-locked doors the `(unlocked, items)` search's `u64` bitmask can
 /// track — see [`ContentError::TooManySmallKeyDoors`].
@@ -37,6 +37,8 @@ pub(crate) fn collect_errors(world: &World, check_reachability: bool) -> Vec<Con
     errors.extend(check_npc_conditions(world));
     errors.extend(check_puzzles(world));
     errors.extend(check_torches(world));
+    errors.extend(check_boss(world));
+    errors.extend(check_beacon(world));
     errors.extend(check_secrets(world));
     if check_reachability {
         errors.extend(check_reachability_and_route(world));
@@ -58,6 +60,8 @@ fn check_unique_ids(world: &World) -> Vec<ContentError> {
     let mut seen_puzzles = HashSet::new();
     let mut seen_torches = HashSet::new();
     let mut seen_plates = HashSet::new();
+    let mut seen_blocks = HashSet::new();
+    let mut seen_beacons = HashSet::new();
     let mut seen_map_index: HashSet<(u8, u8)> = HashSet::new();
 
     for room in &world.rooms {
@@ -125,6 +129,22 @@ fn check_unique_ids(world: &World) -> Vec<ContentError> {
                 errors.push(ContentError::DuplicateId {
                     kind: IdKind::Plate,
                     id: p.id.clone(),
+                });
+            }
+        }
+        for b in &room.blocks {
+            if !seen_blocks.insert(b.id.clone()) {
+                errors.push(ContentError::DuplicateId {
+                    kind: IdKind::Block,
+                    id: b.id.clone(),
+                });
+            }
+        }
+        for b in &room.beacons {
+            if !seen_beacons.insert(b.id.clone()) {
+                errors.push(ContentError::DuplicateId {
+                    kind: IdKind::Beacon,
+                    id: b.id.clone(),
                 });
             }
         }
@@ -280,6 +300,12 @@ fn check_object_placement(world: &World) -> Vec<ContentError> {
         for p in &room.plates {
             objects.push((format!("plate '{}'", p.id), p.at));
         }
+        for b in &room.blocks {
+            objects.push((format!("block '{}'", b.id), b.at));
+        }
+        for b in &room.beacons {
+            objects.push((format!("beacon '{}'", b.id), b.at));
+        }
 
         for (what, at) in &objects {
             if !in_bounds(*at) {
@@ -331,6 +357,11 @@ fn check_npc_conditions(world: &World) -> Vec<ContentError> {
                 }
             }
         }
+        for enemy in &room.enemies {
+            if let Some(flag) = &enemy.defeat_flag {
+                set_flags.insert(flag.as_str());
+            }
+        }
     }
 
     let mut needed: HashSet<&str> = HashSet::new();
@@ -361,10 +392,17 @@ fn check_npc_conditions(world: &World) -> Vec<ContentError> {
 }
 
 /// Every `Puzzle.plates` id must name a plate that exists in the same room, and every
-/// `Puzzle.reveals`/`Torch.reveals` position must be a `Tile::Hidden` tile in that room.
+/// `Puzzle.reveals`/`Torch.reveals` position must be a `Tile::Hidden` tile in that room. Per-kind
+/// shape rules: `BlockOnPlates` names exactly one block (resolving in the same room) and at least
+/// one plate; `TorchSequence` names at least two distinct, resolving torches, none of which
+/// carries its own `reveals` (the puzzle owns the reveal). A torch or block may be claimed by at
+/// most one puzzle in its room.
 fn check_puzzles(world: &World) -> Vec<ContentError> {
     let mut errors = Vec::new();
     for room in &world.rooms {
+        let mut claimed_torches: HashMap<&str, usize> = HashMap::new();
+        let mut claimed_blocks: HashMap<&str, usize> = HashMap::new();
+
         for puzzle in &room.puzzles {
             for plate_id in &puzzle.plates {
                 if room.plate_index(plate_id).is_none() {
@@ -384,6 +422,110 @@ fn check_puzzles(world: &World) -> Vec<ContentError> {
                     });
                 }
             }
+
+            match puzzle.kind {
+                PuzzleKind::StepPlates => {}
+                PuzzleKind::BlockOnPlates => {
+                    let block_ok =
+                        puzzle.blocks.len() == 1 && room.block_index(&puzzle.blocks[0]).is_some();
+                    if !block_ok || puzzle.plates.is_empty() {
+                        errors.push(ContentError::BlockPuzzleShape {
+                            room: room.id.clone(),
+                            puzzle: puzzle.id.clone(),
+                        });
+                    }
+                    for block_id in &puzzle.blocks {
+                        *claimed_blocks.entry(block_id.as_str()).or_insert(0) += 1;
+                    }
+                }
+                PuzzleKind::TorchSequence => {
+                    let mut unique = HashSet::new();
+                    let all_unique = puzzle.torches.iter().all(|id| unique.insert(id.as_str()));
+                    let all_resolve_and_bare = puzzle.torches.iter().all(|id| {
+                        room.torches
+                            .iter()
+                            .find(|t| &t.id == id)
+                            .is_some_and(|t| t.reveals.is_empty())
+                    });
+                    if puzzle.torches.len() < 2 || !all_unique || !all_resolve_and_bare {
+                        errors.push(ContentError::TorchSequenceShape {
+                            room: room.id.clone(),
+                            puzzle: puzzle.id.clone(),
+                        });
+                    }
+                    for torch_id in &puzzle.torches {
+                        *claimed_torches.entry(torch_id.as_str()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        for (torch_id, count) in claimed_torches {
+            if count > 1 {
+                errors.push(ContentError::PuzzleObjectClaimedTwice {
+                    room: room.id.clone(),
+                    what: format!("torch '{torch_id}'"),
+                });
+            }
+        }
+        for (block_id, count) in claimed_blocks {
+            if count > 1 {
+                errors.push(ContentError::PuzzleObjectClaimedTwice {
+                    room: room.id.clone(),
+                    what: format!("block '{block_id}'"),
+                });
+            }
+        }
+    }
+    errors
+}
+
+/// At most one `EnemyKind::Boss` spawn world-wide; `drops`/`defeat_flag` only on a boss spawn; a
+/// boss that drops a reward must carry a `defeat_flag` (or the reward could never be recorded as
+/// collected).
+fn check_boss(world: &World) -> Vec<ContentError> {
+    let mut errors = Vec::new();
+    let mut boss_count = 0usize;
+    for room in &world.rooms {
+        for enemy in &room.enemies {
+            if enemy.kind == EnemyKind::Boss {
+                boss_count += 1;
+                if enemy.drops.is_some() && enemy.defeat_flag.is_none() {
+                    errors.push(ContentError::BossDropMissingFlag {
+                        room: room.id.clone(),
+                    });
+                }
+            } else if enemy.drops.is_some() || enemy.defeat_flag.is_some() {
+                errors.push(ContentError::BossFieldOnRegularEnemy {
+                    room: room.id.clone(),
+                });
+            }
+        }
+    }
+    if boss_count > 1 {
+        errors.push(ContentError::MultipleBosses { count: boss_count });
+    }
+    errors
+}
+
+/// Exactly one `Beacon` world-wide, and it must live in `route.home`.
+fn check_beacon(world: &World) -> Vec<ContentError> {
+    let mut errors = Vec::new();
+    let beacons: Vec<&Room> = world
+        .rooms
+        .iter()
+        .filter(|r| !r.beacons.is_empty())
+        .collect();
+    let total: usize = beacons.iter().map(|r| r.beacons.len()).sum();
+    if total == 0 {
+        errors.push(ContentError::BeaconMissing);
+    } else if total > 1 {
+        errors.push(ContentError::MultipleBeacons { count: total });
+    } else if let Some(room) = beacons.first() {
+        if room.id != world.route.home {
+            errors.push(ContentError::BeaconNotAtHome {
+                room: room.id.clone(),
+            });
         }
     }
     errors
@@ -452,6 +594,12 @@ pub fn main_route_rooms(world: &World) -> std::collections::BTreeSet<RoomIdx> {
         let room_idx = RoomIdx(i as u16);
         let has_critical = room.chests.iter().any(|c| {
             !c.secret && matches!(c.contains, Reward::Sword | Reward::Lantern | Reward::Ember)
+        }) || room.enemies.iter().any(|e| {
+            e.kind == EnemyKind::Boss
+                && matches!(
+                    e.drops,
+                    Some(Reward::Sword) | Some(Reward::Lantern) | Some(Reward::Ember)
+                )
         });
         if has_critical {
             targets.insert(room_idx);
@@ -651,6 +799,85 @@ fn orthogonal_neighbours(pos: Pos) -> [Option<Pos>; 4] {
     ]
 }
 
+/// One tile in `dir` from `pos`, or `None` off-grid — the same rule as `game::state::step_target`
+/// (not reused directly: that function is `pub(super)` to `game`, and duplicating four lines here
+/// is simpler than widening its visibility for one caller in a different module).
+fn step(pos: Pos, dir: crate::game::entities::Facing) -> Option<Pos> {
+    use crate::game::entities::Facing;
+    match dir {
+        Facing::North => pos.y.checked_sub(1).map(|y| Pos { x: pos.x, y }),
+        Facing::South => pos.y.checked_add(1).map(|y| Pos { x: pos.x, y }),
+        Facing::East => pos.x.checked_add(1).map(|x| Pos { x, y: pos.y }),
+        Facing::West => pos.x.checked_sub(1).map(|x| Pos { x, y: pos.y }),
+    }
+}
+
+/// The exact one-block push search `check_reachability_and_route`'s `BlockOnPlates` rule needs:
+/// a BFS over `(block_pos, hero_pos)` seeded from every hero tile already reached in the room,
+/// where an edge is either an ordinary hero step (refused onto the block's own tile) or a push of
+/// the block through `game::puzzles::block_push_target` — the same predicate the simulation itself
+/// uses, so the validator and the game can never disagree about what a player can do. Solved iff
+/// some reachable `block_pos` is one of `target_plates`. Bounded by `(ROOM_W * ROOM_H)^2` states
+/// (~147k, milliseconds), and exact because the schema forbids a second block in one puzzle.
+fn block_puzzle_solvable(
+    room: &Room,
+    block_start: Pos,
+    hero_starts: &HashSet<Pos>,
+    target_plates: &HashSet<Pos>,
+) -> bool {
+    use crate::game::entities::Facing;
+    use crate::game::puzzles::block_push_target;
+
+    if target_plates.contains(&block_start) {
+        return true;
+    }
+
+    let mut seen: HashSet<(Pos, Pos)> = HashSet::new();
+    let mut queue = VecDeque::new();
+    for &hero_pos in hero_starts {
+        if hero_pos == block_start {
+            continue;
+        }
+        let state = (block_start, hero_pos);
+        if seen.insert(state) {
+            queue.push_back(state);
+        }
+    }
+
+    let no_enemies: HashSet<Pos> = HashSet::new();
+    const DIRS: [Facing; 4] = [Facing::North, Facing::East, Facing::South, Facing::West];
+    while let Some((block_pos, hero_pos)) = queue.pop_front() {
+        for dir in DIRS {
+            let Some(next) = step(hero_pos, dir) else {
+                continue;
+            };
+            if next == block_pos {
+                let Some(target) =
+                    block_push_target(room, &[block_pos], &no_enemies, block_pos, dir)
+                else {
+                    continue;
+                };
+                if target_plates.contains(&target) {
+                    return true;
+                }
+                let state = (target, block_pos);
+                if seen.insert(state) {
+                    queue.push_back(state);
+                }
+                continue;
+            }
+            if room.tile_at(next).is_some_and(|t| t.is_walkable()) && room.object_at(next).is_none()
+            {
+                let state = (block_pos, next);
+                if seen.insert(state) {
+                    queue.push_back(state);
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Every position an authored torch or `StepPlates` puzzle can reveal, and every flag a reachable
 /// NPC's dialogue can set, given which tiles are currently reached. Carried alongside `Items` in
 /// the search state so both fixpoints — items and reveals/flags — settle together.
@@ -747,7 +974,13 @@ impl<'w> ReachabilitySearch<'w> {
         };
         let tile_ok =
             tile.is_walkable() || (tile == Tile::Hidden && reveal.is_revealed(room, room_idx, at));
-        tile_ok && room.object_at(at).is_none()
+        // A block's authored reset position is solid to an ordinary hero step, exactly like
+        // `GameState::walkable`'s `block_free` term — the flood otherwise treats it as plain
+        // floor and could optimistically call a route reachable that a player cannot walk before
+        // the block is pushed clear (round-1 review, minor). `block_puzzle_solvable` is the
+        // mechanism that proves a block actually can be moved out of the way.
+        let block_free = !room.blocks.iter().any(|b| b.at == at);
+        tile_ok && room.object_at(at).is_none() && block_free
     }
 
     /// Flood-fills the tile graph from `start` (orthogonal steps within a room, doors across
@@ -787,6 +1020,35 @@ impl<'w> ReachabilitySearch<'w> {
             }
 
             let mut next_reveal = reveal.clone();
+
+            // The validator cannot simulate the boss fight, so a boss spawn's reward/flag are
+            // granted as soon as its arena is reachable (an orthogonal neighbour of its tile is in
+            // `reached`) — asserting what it can (the arena is reachable and the reward/flag are
+            // wired), while `tests/boss.rs`/`tests/playthrough.rs` prove the fight itself.
+            for (i, room) in self.world.rooms.iter().enumerate() {
+                let room_idx = RoomIdx(i as u16);
+                for enemy in &room.enemies {
+                    if enemy.kind != super::schema::EnemyKind::Boss {
+                        continue;
+                    }
+                    let reachable = orthogonal_neighbours(enemy.at)
+                        .into_iter()
+                        .flatten()
+                        .any(|n| reached.contains(&(room_idx, n)));
+                    if !reachable {
+                        continue;
+                    }
+                    match enemy.drops {
+                        Some(Reward::SmallKey) => keys_found += 1,
+                        Some(Reward::Lantern) => next_items.lantern = true,
+                        Some(Reward::Ember) => next_items.ember = true,
+                        _ => {}
+                    }
+                    if let Some(flag) = &enemy.defeat_flag {
+                        next_reveal.flags.insert(flag.clone());
+                    }
+                }
+            }
             if next_items.lantern {
                 for (i, room) in self.world.rooms.iter().enumerate() {
                     let room_idx = RoomIdx(i as u16);
@@ -832,21 +1094,62 @@ impl<'w> ReachabilitySearch<'w> {
             for (i, room) in self.world.rooms.iter().enumerate() {
                 let room_idx = RoomIdx(i as u16);
                 for (pi, puzzle) in room.puzzles.iter().enumerate() {
-                    if puzzle.kind != PuzzleKind::StepPlates || puzzle.plates.is_empty() {
-                        continue;
-                    }
                     let key = (room_idx, pi as u16);
                     if next_reveal.solved_puzzles.contains(&key) {
                         continue;
                     }
-                    let all_reached = puzzle.plates.iter().all(|id| {
-                        room.plate_index(id).is_some_and(|idx| {
-                            room.plates
-                                .get(idx as usize)
-                                .is_some_and(|p| reached.contains(&(room_idx, p.at)))
-                        })
-                    });
-                    if all_reached {
+                    let solved = match puzzle.kind {
+                        PuzzleKind::StepPlates => {
+                            !puzzle.plates.is_empty()
+                                && puzzle.plates.iter().all(|id| {
+                                    room.plate_index(id).is_some_and(|idx| {
+                                        room.plates
+                                            .get(idx as usize)
+                                            .is_some_and(|p| reached.contains(&(room_idx, p.at)))
+                                    })
+                                })
+                        }
+                        PuzzleKind::TorchSequence => {
+                            next_items.lantern
+                                && !puzzle.torches.is_empty()
+                                && puzzle.torches.iter().all(|id| {
+                                    room.torches.iter().find(|t| &t.id == id).is_some_and(|t| {
+                                        orthogonal_neighbours(t.at)
+                                            .into_iter()
+                                            .flatten()
+                                            .any(|n| reached.contains(&(room_idx, n)))
+                                    })
+                                })
+                        }
+                        PuzzleKind::BlockOnPlates => {
+                            puzzle.blocks.len() == 1
+                                && !puzzle.plates.is_empty()
+                                && room
+                                    .block_index(&puzzle.blocks[0])
+                                    .is_some_and(|block_idx| {
+                                        let block = &room.blocks[block_idx as usize];
+                                        let hero_starts: HashSet<Pos> = reached
+                                            .iter()
+                                            .filter(|(r, _)| *r == room_idx)
+                                            .map(|(_, p)| *p)
+                                            .collect();
+                                        let target_plates: HashSet<Pos> = puzzle
+                                            .plates
+                                            .iter()
+                                            .filter_map(|id| room.plate_index(id))
+                                            .filter_map(|idx| room.plates.get(idx as usize))
+                                            .map(|p| p.at)
+                                            .collect();
+                                        block_puzzle_solvable(
+                                            room,
+                                            block.at,
+                                            &hero_starts,
+                                            &target_plates,
+                                        )
+                                    })
+                        }
+                    };
+                    if solved {
                         next_reveal.solved_puzzles.insert(key);
                     }
                 }
@@ -961,11 +1264,13 @@ fn check_reachability_and_route(world: &World) -> Vec<ContentError> {
     let mut ever_lantern = false;
     let mut ever_flags: HashSet<String> = HashSet::new();
     let mut ember_states: Vec<&HashSet<Loc>> = Vec::new();
+    let mut ever_solved_puzzles: HashSet<(RoomIdx, u16)> = HashSet::new();
     for (reachable, items, unlocked, reveal) in &states {
         all_reachable.extend(reachable.iter().copied());
         ever_unlocked |= unlocked;
         ever_lantern |= items.lantern;
         ever_flags.extend(reveal.flags.iter().cloned());
+        ever_solved_puzzles.extend(reveal.solved_puzzles.iter().copied());
         if items.ember {
             ember_states.push(reachable);
         }
@@ -990,6 +1295,16 @@ fn check_reachability_and_route(world: &World) -> Vec<ContentError> {
                     room: room.id.clone(),
                     door: door.id.clone(),
                     from_spawn: entry_spawns_for_room(world, room_idx).join(", "),
+                });
+            }
+        }
+        for (pi, puzzle) in room.puzzles.iter().enumerate() {
+            if puzzle.kind == PuzzleKind::BlockOnPlates
+                && !ever_solved_puzzles.contains(&(room_idx, pi as u16))
+            {
+                errors.push(ContentError::BlockPuzzleUnsolvable {
+                    room: room.id.clone(),
+                    puzzle: puzzle.id.clone(),
                 });
             }
         }
@@ -1046,10 +1361,12 @@ fn check_reachability_and_route(world: &World) -> Vec<ContentError> {
         }
     }
 
-    let ember_authored = world
-        .rooms
-        .iter()
-        .any(|r| r.chests.iter().any(|c| c.contains == Reward::Ember));
+    let ember_authored = world.rooms.iter().any(|r| {
+        r.chests.iter().any(|c| c.contains == Reward::Ember)
+            || r.enemies
+                .iter()
+                .any(|e| e.kind == EnemyKind::Boss && e.drops == Some(Reward::Ember))
+    });
 
     if ember_authored {
         if ember_states.is_empty() {
@@ -1099,6 +1416,14 @@ mod tests {
             .map(|r| format!("                \"{r}\","))
             .collect::<Vec<_>>()
             .join("\n");
+        // `check_beacon` requires exactly one beacon world-wide, in `route.home` — these fixtures
+        // all use "room.a" as both start and home, so it carries the fixture beacon; nothing here
+        // exercises beacon/boss placement itself.
+        let beacons = if id == "room.a" {
+            r#"[(id: "beacon.fixture", at: (x: 20, y: 12))]"#
+        } else {
+            "[]"
+        };
         format!(
             r#"        (
             id: "{id}",
@@ -1111,6 +1436,7 @@ mod tests {
             doors: [{doors}],
             spawns: [{spawns}],
             chests: [{chests}],
+            beacons: {beacons},
         ),
 "#
         )
@@ -1283,6 +1609,8 @@ mod tests {
             puzzles: Vec::new(),
             torches: Vec::new(),
             plates: Vec::new(),
+            blocks: Vec::new(),
+            beacons: Vec::new(),
             hint: None,
         };
 

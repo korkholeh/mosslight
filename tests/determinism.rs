@@ -75,7 +75,7 @@ fn enemy_position_and_hash_trace(seed: u64, actions: &[Action]) -> (Vec<Vec<Pos>
     state.room = room;
     state.hero.pos = spawn;
     state.hero.has_sword = true;
-    state.spawn_enemies();
+    state.enter_room();
 
     let mut positions = Vec::with_capacity(actions.len());
     let mut hashes = Vec::with_capacity(actions.len());

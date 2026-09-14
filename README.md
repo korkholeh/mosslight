@@ -83,14 +83,13 @@ misbehaves in a sandboxed environment.
 
 See `CHANGELOG.md` for user-visible changes.
 
-## Known limitations (phase 4)
+## Known limitations (phase 5)
 
-The game so far: the terminal skeleton and mode machine, a hand-authored nine-room overworld with
-working room transitions and pacing, sword combat, three enemy kinds (slime, bat, guardian) with
-readable per-kind AI, death/retry from the last room entered, three NPCs with branching dialogue,
-chests, a lantern that lights torches and reveals hidden passages, a step-plate puzzle, three secret
-rewards, and Map/Inventory screens. The hero starts with neither sword nor lantern and finds both in
-the overworld. Not yet built: the six-room dungeon beyond its entrance vestibule, the two-phase
-boss, the ember, key consumption, push-block/switch puzzles, and the save system — Continue always
-reports "no save yet". See `.autodev/ROADMAP.md` for what each later phase adds, and
-`.autodev/PROGRESS.md` for current status.
+The game is completable end to end: New Game through the nine-room overworld (sword, lantern, three
+NPCs, chests, secrets, a step-plate puzzle), into the six-room dungeon behind the marsh's
+lantern-locked door (two small keys, a block-on-plates puzzle, a torch-sequence puzzle, guardians),
+through a two-phase telegraphed boss, and back to the lighthouse's beacon to relight it and win. Not
+yet built: the save system (Continue always reports "no save yet"), the full CLI presentation modes
+(`--unicode` and `--theme ansi` are accepted but not yet visually distinct from the ASCII/gameboy
+defaults), and the balance/measurement pass. See `.autodev/ROADMAP.md` for what each later phase
+adds, and `.autodev/PROGRESS.md` for current status.

@@ -4,6 +4,19 @@ All notable user-visible changes to Mosslight are recorded here.
 
 ## Unreleased
 
+- The game is now completable end to end. Behind the marsh's lantern-locked door, a six-room
+  dungeon (a safe vestibule, a flooded hall, a block-puzzle chamber, a torch-sequence vault, a
+  guardian-patrolled walk, and a boss arena) leads to a two-phase telegraphed boss. Defeating it
+  grants the ancient ember; bringing it back to the lighthouse's beacon and facing it (E) ends the
+  run. Two small keys, found in the dungeon, open the two locked doors along the way — the return
+  trip through either is always free.
+- Two new puzzle kinds join the mill's step-plates: pushing a block (walk into it) onto a plate,
+  and lighting a room's torches in a hinted order (lighting one out of turn resets the sequence at
+  no cost — there is no dead end). Leaving a room always resets its unsolved puzzles to their
+  authored start; a solved puzzle and what it revealed stay that way.
+- The boss telegraphs every attack at least 600ms before it lands, and only takes sword damage in
+  the brief window right after — hitting it any other time deflects the blow harmlessly. It never
+  deals contact damage; every hit it can land is a telegraphed strike you can see coming.
 - The overworld is fully authored: an NPC keeper starts the lighthouse cul-de-sac, whose single
   exit leads to a sword-holding room with no enemies. Chests, NPCs and torches occupy their tile
   and are opened/talked to/lit by facing them (E to interact, K for the lantern); a chest opens

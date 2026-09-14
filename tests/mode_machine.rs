@@ -281,6 +281,59 @@ fn interacting_with_an_npc_opens_dialogue_mode_and_freezes_the_tick() {
     );
 }
 
+/// `beacon.lighthouse` sits at (20, 5) in `room.lighthouse` — the start room, so no room
+/// transition is needed to face it.
+fn face_the_beacon(app: &mut App) {
+    app.state.hero.pos = Pos { x: 20, y: 6 };
+    app.state.hero.facing = mosslight::game::Facing::North;
+}
+
+#[test]
+fn game_won_enters_victory_mode_and_stops_simulating() {
+    // Round-1 review, major: T10's ending was only proved below `App` (the `GameWon` *event*),
+    // never that `App` actually reacts to it — this and the test below are the promised
+    // `tests/mode_machine.rs` coverage.
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]);
+    face_the_beacon(&mut app);
+    app.state.hero.has_ember = true;
+
+    let sim_actions = app.apply(&[Action::Interact]);
+    app.tick(&sim_actions);
+    assert_eq!(app.mode, Mode::Victory);
+    assert!(!app.simulating(), "the simulation must not run in Victory");
+
+    let before = app.state.tick;
+    app.tick(&[]);
+    app.tick(&[]);
+    assert_eq!(before, app.state.tick, "Victory must freeze the simulation");
+}
+
+#[test]
+fn victory_confirm_returns_to_the_main_menu() {
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]);
+    face_the_beacon(&mut app);
+    app.state.hero.has_ember = true;
+    let sim_actions = app.apply(&[Action::Interact]);
+    app.tick(&sim_actions);
+    assert_eq!(app.mode, Mode::Victory);
+
+    app.apply(&[Action::Confirm]);
+    assert_eq!(app.mode, Mode::MainMenu);
+
+    let mut app = App::new(&cfg(), world());
+    app.apply(&[Action::Confirm]);
+    face_the_beacon(&mut app);
+    app.state.hero.has_ember = true;
+    let sim_actions = app.apply(&[Action::Interact]);
+    app.tick(&sim_actions);
+    assert_eq!(app.mode, Mode::Victory);
+
+    app.apply(&[Action::Cancel]);
+    assert_eq!(app.mode, Mode::MainMenu);
+}
+
 #[test]
 fn closing_a_dialogue_drops_a_queued_move_from_the_same_batch() {
     let mut app = App::new(&cfg(), world());

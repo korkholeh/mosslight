@@ -1,13 +1,13 @@
 # Autodev progress — Mosslight
 
 - **Status:** running
-- **Current:** phase 4/7 · step `commit`
+- **Current:** phase 5/7 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260913-2128` · **PR:** https://github.com/korkholeh/mosslight/pull/1
 - **Stack:** Rust 1.98.1 stable (pinned), single lib+bin Cargo package — ratatui 0.30.2 (crossterm 0.29 via its re-export), clap 4.6, serde 1, ron 0.12 (content), serde_json 1 (saves), signal-hook 0.4; no async runtime, no ECS, no runtime assets. · **Profile:** `rust-tui`
 - **Test command:** `cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --locked` · **E2E:** `-`
-- **Usage:** 5h 37% (reset 14.09 11:50) · 7d 47%
-- **Totals:** 30 sessions · 5.2 h agent time · ≈$112.81 API-equivalent
-- **Updated:** 2026-09-14 08:34:40
+- **Usage:** 5h 75% (reset 14.09 11:50) · 7d 49%
+- **Totals:** 36 sessions · 6.6 h agent time · ≈$152.13 API-equivalent
+- **Updated:** 2026-09-14 11:38:23
 
 ## Phases
 
@@ -16,8 +16,8 @@
 | 1 | Skeleton, terminal lifecycle and the playable room | yes | ✅ done | a1fc17b | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
 | 2 | Content pipeline, validator and room transitions | no | ✅ done | 50b5925 |  |
 | 3 | Sword combat, three enemy kinds, death and determinism | yes | ✅ done | dad1978 | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
-| 4 | Overworld: NPCs, chests, sword, lantern, secrets, map and inventory | yes | 🔨 in_progress |  |  |
-| 5 | Dungeon, keys, puzzles, two-phase boss and the ending | yes | ⏳ pending |  |  |
+| 4 | Overworld: NPCs, chests, sword, lantern, secrets, map and inventory | yes | ✅ done | f8abff6 | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
+| 5 | Dungeon, keys, puzzles, two-phase boss and the ending | yes | 🔨 in_progress |  |  |
 | 6 | Save slot, full CLI and presentation modes | yes | ⏳ pending |  |  |
 | 7 | Balance, measurement, documentation and verification report | yes | ⏳ pending |  |  |
 
@@ -88,6 +88,22 @@
 - `2026-09-14 08:30:56` **p04-review_fix2** — done (6m, $2.38): Applied all REVIEW-r2.md findings for phase 4 (overworld content). Fixed, none rejected: MAJOR — criterion-2 reachability test replaced with a structural BFS from start_room, stopping expansion past the sword room; MAJOR — state_hash's mutation table extended with all 9 new hashed fields (hero equi…
 - `2026-09-14 08:30:59` **p04-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 - `2026-09-14 08:34:40` **p04-docs** — done (3m, $1.43): Verified phase-4 T14 doc updates (docs/user/controls.md, docs/dev/content.md, docs/dev/loop-and-modes.md, CHANGELOG.md) against the actual diff, input.rs key map, and content/schema.rs field names — all already correct, no changes needed there. Fixed the remaining stale spots: - docs/dev/testing.md…
+- `2026-09-14 08:34:40` **p04-commit** — done: f8abff6
+- `2026-09-14 08:34:42` **push** — done: korkholeh/mosslight@autodev/spec-20260913-2128 as korkholeh
+- `2026-09-14 08:34:46` **p04-push** — done: korkholeh/mosslight@autodev/spec-20260913-2128-p04-overworld-content
+- `2026-09-14 08:34:49` **p04-pr** — draft: https://github.com/korkholeh/mosslight/pull/6
+- `2026-09-14 08:34:53` **stack** — linked: 4 pull requests — Checking existing stacks... Looking up PRs for 4 branches... ✓ Updated stack to 4 PRs (stack #5)
+- `2026-09-14 08:35:06` **stack-merge** — done: 4 pull request(s) into main
+- `2026-09-14 08:46:08` **p05-plan** — done (10m, $4.25): Explored the phase-4 codebase (content schema, validator BFS, game state/AI/combat, app modes, world.ron) and wrote `.autodev/phases/05-dungeon-puzzles-boss/PLAN.md` with Context, Design, 16 ordered tasks, a verification table mapping every acceptance criterion to a named test, risks and out-of-sco…
+- `2026-09-14 09:31:35` **p05-implement** — done (45m, $22.57): Implemented all 16 tasks of phase 5 (Dungeon, keys, puzzles, two-phase boss and the ending). Content schema gained Block/Beacon, EnemyKind::Boss, EnemySpawn::{drops,defeat_flag}, and Puzzle::{blocks,torches}; PuzzleKind::{PushBlock,Switches} renamed to {BlockOnPlates,TorchSequence}. Simulation: Puz…
+- `2026-09-14 09:31:35` **run** — stopped: STOP file
+- `2026-09-14 09:31:37` **push** — done: korkholeh/mosslight@autodev/spec-20260913-2128 as korkholeh
+- `2026-09-14 11:09:24` **p05-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- `2026-09-14 11:14:35` **p05-review1** — changes_requested (5m, $3.09): Phase 5 delivers the full dungeon, keys, both new puzzle kinds, the two-phase boss and the ending; the gate passes locally (fmt + clippy -D warnings + cargo test, exit 0) and the headless playthrough genuinely drives New Game to GameWon with an ordered milestone assertion. Five issues block approva…
+- `2026-09-14 11:29:40` **p05-review_fix1** — done (15m, $3.7): Applied every finding from REVIEW-r1.md (phase 5, round 1). All 5 MAJOR and all 3 MINOR findings fixed, none rejected: MAJOR fixed: 1. Blocks weren't solid to enemies — `ai::occupied_positions` now includes current-room block positions; `try_push_block` also refuses a push when a live enemy occupie…
+- `2026-09-14 11:29:55` **p05-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- `2026-09-14 11:35:42` **p05-review2** — approve (5m, $4.62): Phase 5 is complete and the phase gate passes (fmt + clippy -D warnings + cargo test, exit 0, re-run during this review). Every acceptance criterion maps to a test that can actually fail: tests/playthrough.rs drives New Game to GameWon with only Actions and verifies the milestone order from the rea…
+- `2026-09-14 11:38:23` **p05-docs** — done (2m, $1.09): Verified phase-5 docs against the code, PLAN.md, DECISIONS.md and both review rounds (round 2: approve). Most docs (CLAUDE.md, docs/dev/content.md, docs/dev/testing.md, docs/dev/loop-and-modes.md, docs/user/controls.md, CHANGELOG.md) were already made accurate during the implement/review-fix steps …
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

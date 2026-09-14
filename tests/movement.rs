@@ -23,7 +23,7 @@ fn state_in(room_id: &str, pos: Pos) -> GameState {
     let mut state = GameState::new(1, world);
     state.room = room;
     state.hero.pos = pos;
-    state.spawn_enemies();
+    state.enter_room();
     state
 }
 

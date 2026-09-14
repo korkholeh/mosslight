@@ -511,3 +511,146 @@ Appended by agents whenever they choose between options without a human.
   and phase 5's `tests/playthrough.rs` is explicitly meant to reuse this module unchanged, so two
   copies of the room-local BFS would drift the moment one of them changed (round-2 review, minor)
   — alternatives: none; deleting the duplicate was the review's own suggested fix.
+- [phase-05/plan] `PuzzleKind::{PushBlock, Switches}` are renamed to `{BlockOnPlates, TorchSequence}` —
+  why: `.autodev/ARCHITECTURE.md` and this phase's deliverables both name the two kinds
+  `BlockOnPlates`/`TorchSequence`, neither variant is referenced by `assets/world.ron` yet, so the rename
+  is free and stops the schema and the design docs describing the same two puzzles under different names —
+  alternatives: keep the phase-2 names and correct ARCHITECTURE.md instead (loses the deliverable's own
+  vocabulary); keep both as aliases (two spellings of one concept in the content surface).
+- [phase-05/plan] Boss defeat is represented as an authored story flag (`EnemySpawn::defeat_flag`, set into
+  `Progress::flags`) rather than the `Progress::boss_defeated: bool` field ARCHITECTURE.md lists — why:
+  flags are already hashed, already the save vocabulary, and already usable by `LockKind::Flag` and
+  `Npc::condition`, so one content-driven mechanism covers respawn suppression, post-victory dialogue and
+  any future flag-locked door, where a dedicated bool would need parallel handling in the hash, the save
+  and the validator — alternatives: the bool as specified (a second mechanism for the same fact);
+  inferring defeat from the ember (conflates the reward with the event).
+- [phase-05/plan] The boss deals no contact damage: `combat::apply_contact_damage` skips `EnemyKind::Boss`
+  and all boss damage comes from telegraphed strikes resolved by `combat::apply_boss_strike` — why: the
+  sword hits only the tile the hero faces, so damaging the boss requires standing orthogonally adjacent to
+  it; a contact-damaging boss would make the phase's own scripted no-damage acceptance test impossible by
+  construction and turn the fight into the damage race spec §6 forbids ("вікно вразливості після атаки") —
+  alternatives: keep contact damage and drop the no-damage criterion (contradicts the phase acceptance
+  list); give the hero a ranged attack (new mechanic, out of scope, breaks §5's key map).
+- [phase-05/plan] The boss lives in `src/game/ai.rs` as a fourth `EnemyKind` state machine, and its damage
+  application in `src/game/combat.rs`; no `src/game/boss.rs` is added — why: the boss reuses `Room::enemies`,
+  `EnemyId`, the swing hit-list, occupancy and `revealed_set` unchanged, ARCHITECTURE.md already lists
+  `Boss` in `EnemySpawn.kind` and `Boss: PhaseOne|PhaseTwo|Stunned|Dead` in the AI enum, and the module
+  layout in CLAUDE.md/PROFILE.md names no boss module — alternatives: a new `boss.rs` (a layout deviation
+  for ~150 lines that would still need `ai.rs` and `combat.rs` hooks).
+- [phase-05/plan] `game::puzzles::PlateState` becomes `PuzzleState { pressed, blocks, sequence }`,
+  `GameState::plates` becomes `GameState::puzzle`, and `GameState::spawn_enemies` becomes
+  `GameState::enter_room` — why: all three names now describe less than the thing does (the function
+  already reset plates and rebuilt enemies, and now also reseeds block positions and clears the torch
+  sequence), and the single "everything room-local is reseeded on entry" rule is what implements both the
+  unsolved-puzzle reset and the anti-soft-lock guarantee — alternatives: keep the names and add a second
+  reset function (two places to forget one field).
+- [phase-05/plan] A `BlockOnPlates` puzzle may name exactly one block (validator-enforced), and the
+  validator proves it solvable with an exact BFS over `(block_pos, hero_pos)` seeded from the reached tiles
+  of the room — why: one block makes the push search exactly one-block Sokoban, which is decidable in
+  ≈ 147k states per puzzle (milliseconds) and therefore an honest check, where multi-block Sokoban is
+  PSPACE-complete and would have to degrade to an optimistic "the plates are reachable" heuristic on the
+  single most route-critical property in RISKS #1 — alternatives: allow N blocks with a heuristic check
+  (weakens the validator exactly where it matters); allow N blocks with a bounded search (silently
+  unsound past the bound).
+- [phase-05/plan] A block's push legality is one shared function, `game::puzzles::block_push_target`,
+  called by both `game::update` and `content::validate` — why: the validator's solvability proof is only
+  worth anything if it models the same push rule the simulation implements, and two copies of the rule
+  would drift on the first tweak (`src/content/` already imports `game::entities`/`game::tuning`, so the
+  direction of the dependency is established) — alternatives: duplicate the predicate in the validator
+  (drift); move the rule into `content/` (puts simulation semantics in the content module).
+- [phase-05/plan] A block may never be pushed onto a `Tile::Door` or `Tile::Stairs` tile — why: this is the
+  one wrong state the room-reset rule cannot undo cheaply, since a block parked in a doorway could seal the
+  hero out of (or into) a room before they can leave and trigger the reseed; every other wrong position is
+  recoverable by walking out and back in — alternatives: allow it and rely on the reset (a doorway block
+  can block the very exit the reset needs); make blocks pullable (a new key and a new input mode, against
+  §5's single-press map).
+- [phase-05/plan] A torch named by a `TorchSequence` puzzle is transient (`PuzzleState::sequence`) and never
+  enters `Progress::lit_torches`; the validator forbids such a torch from carrying its own `reveals` —
+  why: a sequence has to be resettable on a wrong order and on room exit, which a permanent `lit_torches`
+  entry cannot express, and a torch that both resets and permanently reveals a passage would be two
+  contradictory mechanics on one object — alternatives: extinguishable permanent torches (makes every
+  reveal in the world revocable); a separate `SequenceTorch` authored type (a second torch family in the
+  schema for one behavioural bit).
+- [phase-05/plan] Unlocking a `SmallKey` door also marks its reciprocal door unlocked in
+  `Progress::unlocked_doors` — why: the acceptance criterion is that a second pass through the same doorway
+  costs nothing, and a player returning from the far side traverses the *reciprocal* `Door` record, which
+  would otherwise demand a second key for a door that is visibly already open — alternatives: author locks
+  on both sides and consume a key each way (charges two keys for one door); author locks one-sided only and
+  leave the reciprocal free (works for the authored world but silently breaks the moment a two-sided lock
+  is authored).
+- [phase-05/plan] The dungeon is a linear six-room chain with no secrets; §2's "≥ 3 secrets" is satisfied by
+  the three overworld secret chests — why: every dungeon room lies on the main route to `route.goal`, and
+  `check_secrets` correctly rejects a secret in a main-route room, so a dungeon secret would require a
+  branch room that §2's six-room budget has no space for — alternatives: spend one of the six rooms on an
+  off-route branch (drops the chain to five rooms of content); relax `check_secrets` (weakens the check
+  that proves no secret gates progress).
+- [phase-05/plan] The validator treats a reachable boss spawn as granting its `drops` and its
+  `defeat_flag`, and a `TorchSequence` as solved once the lantern is held and every one of its torches is
+  adjacent-reachable — why: `content::validate` is a static content check with no combat model and no
+  notion of input ordering, so it asserts what it can (the arena is reachable, the reward and flag are
+  wired; the torches are all reachable and a wrong order costs only a retry) and leaves the fight and the
+  ordering to `tests/boss.rs` and `tests/playthrough.rs` — alternatives: simulate the boss inside the
+  validator (a second combat implementation to keep in sync); omit the boss from reachability entirely
+  (`EmberUnreachable`/`HomeUnreachableWithEmber` would stop covering the ember once it moved off a chest).
+
+## IMPLEMENT phase 5 (2026-09-14)
+
+- [phase-05/t14] Both `SmallKey` doors in `assets/world.ron` are authored one-way: the forward door
+  (`door.flooded_hall.east`, `door.warden_walk.east`) carries `lock: Some(SmallKey)`, its reciprocal
+  (`door.plate_chamber.west`, `door.boss_arena.west`) carries no `lock` at all — why: matches the existing
+  `door.east_marsh.dungeon_entrance`/`door.sanctuary_gate.west` `Lantern`-lock precedent already in the
+  file, is simpler to author and reason about than a two-sided lock, and the "return trip is free" property
+  holds trivially (an unlocked door is always open) — alternatives: author both sides `Some(SmallKey)` and
+  rely on `resolve_door`'s reciprocal-unlock insertion (the mechanism `Progress::unlocked_doors` exists for,
+  per the plan-time decision above); this stays available for future content but nothing in this phase
+  needs it, so `tests/dungeon.rs` builds its own synthetic two-sided-lock fixture to exercise that path
+  directly rather than relying on real content to happen to cover it.
+- [phase-05/t2] `GameState::walkable` grew a `block_free` term (a current-room `puzzle.blocks` position is
+  solid) that the design's T2 description of the change didn't spell out explicitly, only naming
+  `ai::occupied_positions` — why: `walkable` is the one predicate hero movement, `Interact`/`UseLantern`
+  targeting and knockback all go through, and without it a block was solid only via the movement branch's
+  own push-detection special case, not via the shared predicate every other caller trusts (caught by
+  `tests/puzzles.rs::a_block_blocks_the_hero_and_enemies` failing) — alternatives: none; this is a bugfix
+  within T2's own stated scope, not a design change.
+- [phase-05/tests] `tests/puzzles.rs`, `tests/dungeon.rs` and `tests/boss.rs` teleport the hero directly into
+  the room under test (`state_in(room_id, pos)` + `state.enter_room()`), the same pattern
+  `tests/overworld.rs::state_in` already established for phase 4 — why: reaching the dungeon's later rooms
+  via the full overworld route (sword, lantern, both keys, every puzzle) for every unit test would make each
+  test slow and would couple unrelated mechanics together; the full route is independently proved once by
+  `tests/playthrough.rs` — alternatives: drive every test through `tests/common::Runner::walk_to`/`cross_door`
+  from a fresh game (slower, and a change to an earlier room's layout would ripple into unrelated tests).
+
+## APPLY REVIEW FIXES phase 5 round 1 (2026-09-14)
+
+- [phase-05/review-r1] Fixed all five MAJOR findings from REVIEW-r1.md: `ai::occupied_positions` now
+  includes every current-room block position (a block was solid to the hero via `GameState::walkable` but
+  invisible to enemy pathfinding/stepping); `try_push_block` also refuses a push when a live enemy already
+  occupies the block's own tile, as a second, independent guard; `tests/boss.rs::each_phase_uses_a_distinct_attack_pattern`
+  now drives the fight to a real phase-1 and a real phase-2 telegraph and compares the *observed* tile sets
+  against `strike_tiles`, instead of comparing two hand-built `strike_tiles` calls to each other;
+  `tests/boss.rs::every_strike_is_preceded_by_a_telegraph_of_at_least_the_tuned_warning` now checks every
+  `BossStruck` in a run spanning both phases (matching each strike's tile-set payload to the telegraph that
+  carried the same tiles) instead of returning after the first, comfortable-margin phase-1 strike;
+  `tests/puzzles.rs::every_wrong_torch_order_still_leaves_the_puzzle_solvable` now iterates all six torch
+  permutations instead of four hand-picked ones; `tests/puzzles.rs::every_reachable_wrong_block_position_still_leaves_the_room_solvable`
+  now BFS-enumerates every block position a real push sequence can reach in `room.plate_chamber` and
+  re-proves plate-reachability from each one, instead of driving to one hand-picked wrong tile;
+  `tests/mode_machine.rs` gained the two promised `Mode::Victory` tests (`game_won_enters_victory_mode_and_stops_simulating`,
+  `victory_confirm_returns_to_the_main_menu`) that PLAN.md's T10 had marked done without writing — why: each
+  was a real gap the review demonstrated concretely (an exploit path, or a test that cannot fail on the bug
+  it is named for) — alternatives: none considered; these are correctness fixes and coverage gaps, not
+  design trade-offs.
+- [phase-05/review-r1] Fixed all three MINOR findings: `content::validate::walkable_for_search` now treats a
+  room's authored block position as solid, matching `GameState::walkable`'s `block_free` term, so the
+  reachability flood cannot optimistically call a block's own tile walkable before it is pushed clear;
+  `ai::boss_ai_phase`/`step_boss`'s `unreachable!()` arms for a non-boss `AiState` on a `Boss` enemy now
+  recover to a fresh phase-1 stalk instead of panicking, keeping `game::update`'s "never panics" contract
+  total against a future corrupt save (phase 6 deserializes `AiState`); relighting a solved `TorchSequence`
+  torch now emits `Message("The flames are already steady.")` instead of silently doing nothing, matching
+  every other lantern dead end.
+- [phase-05/review-r1] Left the DECISIONS.md `[phase-05/t2]` entry as written rather than editing it: the
+  review's complaint is that `tests/puzzles.rs::a_block_blocks_the_hero_and_enemies`'s *name* overclaims
+  (it asserted only `state.walkable`, never an enemy), not that the entry's specific claim — that this test
+  caught the `walkable`/`block_free` bug — is false; that narrower claim is accurate. The test itself is
+  now extended (this round) to actually drive an enemy at the block and assert it never stands there, so the
+  name and the coverage agree.

@@ -15,9 +15,10 @@ fn fixture(name: &str) -> String {
 #[test]
 fn real_world_validates() {
     let world = content::load().expect("assets/world.ron must validate");
-    // 9 overworld rooms (see `real_world_has_nine_rooms_in_a_3x3_grid`) plus phase 4's dungeon
-    // vestibule, `room.sanctuary_gate` — the six-room dungeon itself is phase 5.
-    assert_eq!(world.rooms.len(), 10);
+    // 9 overworld rooms (see `real_world_has_nine_rooms_in_a_3x3_grid`) plus the phase 5 six-room
+    // dungeon (room.sanctuary_gate, flooded_hall, plate_chamber, torch_vault, warden_walk,
+    // boss_arena).
+    assert_eq!(world.rooms.len(), 15);
     // The acceptance criterion names `content::validate` itself, not just `load` (which already
     // implies it via `loader::parse` -> `collect_errors`) — exercise the named entry point too.
     assert!(content::validate(&world).is_ok());
@@ -323,6 +324,82 @@ fn unknown_route_goal_is_rejected() {
             ContentError::UnknownRoom { referenced_by, room }
                 if referenced_by == "route.goal" && room == "room.nonexistent"
         )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_block_puzzle_naming_no_block_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_block_puzzle_shape.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::BlockPuzzleShape { puzzle, .. } if puzzle == "puzzle.a"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_torch_sequence_naming_unknown_torches_is_rejected() {
+    let errors = content::parse(&fixture("broken_torch_sequence_unknown.ron"))
+        .expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::TorchSequenceShape { puzzle, .. } if puzzle == "puzzle.a"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn boss_only_fields_on_a_regular_enemy_are_rejected() {
+    let errors =
+        content::parse(&fixture("broken_boss_field_on_slime.ron")).expect_err("must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|e| matches!(e, ContentError::BossFieldOnRegularEnemy { .. })),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_beacon_outside_route_home_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_beacon_not_at_home.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::BeaconNotAtHome { room } if room == "room.b"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_block_puzzle_with_no_pushable_plate_is_rejected() {
+    let errors =
+        content::parse(&fixture("broken_block_unsolvable.ron")).expect_err("must be rejected");
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            ContentError::BlockPuzzleUnsolvable { puzzle, .. } if puzzle == "puzzle.a"
+        )),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn an_ember_behind_an_unreachable_boss_is_rejected() {
+    let errors = content::parse(&fixture("broken_ember_behind_unreachable_boss.ron"))
+        .expect_err("must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|e| matches!(e, ContentError::EmberUnreachable)),
         "{errors:?}"
     );
 }

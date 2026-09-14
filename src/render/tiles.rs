@@ -18,6 +18,8 @@ pub enum Kind {
     Slime,
     Bat,
     Guardian,
+    Boss,
+    BossVulnerable,
     Sword,
     Telegraph,
     Npc,
@@ -27,6 +29,8 @@ pub enum Kind {
     TorchLit,
     Plate,
     PlatePressed,
+    Block,
+    Beacon,
 }
 
 impl From<Tile> for Kind {
@@ -46,11 +50,14 @@ impl From<Tile> for Kind {
 }
 
 impl From<EnemyKind> for Kind {
+    /// The boss's default (non-vulnerable) glyph; `scene::draw_scene` overrides this to
+    /// `Kind::BossVulnerable` while the boss's `AiState` is `BossVulnerable`.
     fn from(k: EnemyKind) -> Self {
         match k {
             EnemyKind::Slime => Kind::Slime,
             EnemyKind::Bat => Kind::Bat,
             EnemyKind::Guardian => Kind::Guardian,
+            EnemyKind::Boss => Kind::Boss,
         }
     }
 }
@@ -70,6 +77,8 @@ pub fn glyph(kind: Kind) -> char {
         Kind::Slime => 'o',
         Kind::Bat => '^',
         Kind::Guardian => '&',
+        Kind::Boss => 'W',
+        Kind::BossVulnerable => 'w',
         Kind::Sword => '/',
         Kind::Telegraph => '!',
         Kind::Npc => 'N',
@@ -79,6 +88,8 @@ pub fn glyph(kind: Kind) -> char {
         Kind::TorchLit => 'T',
         Kind::Plate => '_',
         Kind::PlatePressed => '=',
+        Kind::Block => 'O',
+        Kind::Beacon => '*',
     }
 }
 
@@ -86,7 +97,7 @@ pub fn glyph(kind: Kind) -> char {
 mod tests {
     use super::*;
 
-    const ALL_KINDS: [Kind; 20] = [
+    const ALL_KINDS: [Kind; 24] = [
         Kind::Hero,
         Kind::Wall,
         Kind::Floor,
@@ -98,6 +109,8 @@ mod tests {
         Kind::Slime,
         Kind::Bat,
         Kind::Guardian,
+        Kind::Boss,
+        Kind::BossVulnerable,
         Kind::Sword,
         Kind::Telegraph,
         Kind::Npc,
@@ -107,6 +120,8 @@ mod tests {
         Kind::TorchLit,
         Kind::Plate,
         Kind::PlatePressed,
+        Kind::Block,
+        Kind::Beacon,
     ];
 
     #[test]

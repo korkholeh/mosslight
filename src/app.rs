@@ -21,6 +21,7 @@ pub enum Mode {
     Dialogue,
     Map,
     Inventory,
+    Victory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,6 +143,7 @@ impl App {
                 Mode::Inventory => {
                     self.apply_overlay(action, Mode::Inventory, Action::ToggleInventory)
                 }
+                Mode::Victory => self.apply_victory(action),
             }
             if mode_before != Mode::Playing && self.mode == Mode::Playing {
                 drop_pending(&mut sim_actions);
@@ -243,6 +245,16 @@ impl App {
         }
     }
 
+    /// `Confirm`/`Cancel` both return to the main menu — the run that just ended is over, exactly
+    /// like `apply_game_over`'s `Cancel`. `Quit` still routes through `ConfirmQuit`.
+    fn apply_victory(&mut self, action: Action) {
+        match action {
+            Action::Confirm | Action::Cancel => self.set_mode(Mode::MainMenu),
+            Action::Quit => self.set_mode(Mode::ConfirmQuit),
+            _ => {}
+        }
+    }
+
     fn apply_help(&mut self, action: Action) {
         match action {
             Action::Cancel | Action::Help => self.set_mode(self.prev_mode),
@@ -304,6 +316,7 @@ impl App {
                     }
                 }
                 GameEvent::HeroDied => self.set_mode(Mode::GameOver),
+                GameEvent::GameWon => self.set_mode(Mode::Victory),
                 GameEvent::DialogueStarted { .. } => self.set_mode(Mode::Dialogue),
                 GameEvent::Message(text) => self.message = text.clone(),
                 _ => {}

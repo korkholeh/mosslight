@@ -230,6 +230,19 @@ pub fn draw_game_over(buf: &mut Buffer, area: Rect) {
     );
 }
 
+pub fn draw_victory(buf: &mut Buffer, area: Rect) {
+    let box_area = centered_box(area, 40, 5);
+    draw_box(
+        buf,
+        box_area,
+        "The lighthouse is relit",
+        &[
+            "Enter/E: main menu".to_string(),
+            "Esc: main menu".to_string(),
+        ],
+    );
+}
+
 pub fn draw_too_small(buf: &mut Buffer, area: Rect, required: (u16, u16), current: (u16, u16)) {
     let text = format!(
         "Terminal too small.\nRequired: {}x{}\nCurrent: {}x{}",
@@ -252,6 +265,7 @@ pub fn draw_overlay_for_mode(buf: &mut Buffer, area: Rect, app: &App) {
         Mode::Dialogue => draw_dialogue(buf, area, app),
         Mode::Map => draw_map(buf, area, app),
         Mode::Inventory => draw_inventory(buf, area, app),
+        Mode::Victory => draw_victory(buf, area),
         Mode::Playing | Mode::TooSmall => {}
     }
 }

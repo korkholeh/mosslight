@@ -17,10 +17,12 @@ fn state_at(world: &Rc<World>, room: RoomIdx, pos: Pos) -> GameState {
     state.room = room;
     state.progress.visited = BTreeSet::from([room]);
     state.hero.pos = pos;
-    // Phase 4 authors a lantern-locked door (`door.east_marsh.dungeon_entrance`); these tests are
-    // generic door-wiring/geometry checks, not lock-gating (see `tests/overworld.rs` for that), so
-    // the precondition every lock needs is established directly.
+    // Phase 4 authors a lantern-locked door (`door.east_marsh.dungeon_entrance`); phase 5 adds two
+    // `SmallKey`-locked doors. These tests are generic door-wiring/geometry checks, not
+    // lock-gating (see `tests/overworld.rs`/`tests/dungeon.rs` for that), so the precondition
+    // every lock needs is established directly.
     state.hero.has_lantern = true;
+    state.hero.keys = 10;
     state
 }
 
