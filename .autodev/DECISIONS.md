@@ -1133,3 +1133,45 @@ Appended by agents whenever they choose between options without a human.
   specific wrapper, not something the sampler should depend on. Also added a one-line note next to
   the pause-window summary that macOS's `ps -o %cpu` is a decaying average over roughly the
   preceding minute, so an early pause-window sample can still carry over play-window load.
+
+## FINALIZE (2026-09-14)
+
+- [finalize/docs] `docs/user/README.md` is both the user index and the getting-started page (install,
+  first launch, save files, then an ordered path through `controls.md` → `cli.md` → `ssh.md`) rather
+  than a separate `docs/user/getting-started.md` — why: the user guide's suggested layout assumes a
+  product with more than three pages; splitting a four-step install across two files makes a new
+  player read two pages before the game starts. — alternatives: a separate getting-started.md per
+  `.autodev/guides/user-docs.md`'s sketch; a single flat page with no index.
+- [finalize/docs] Kept the existing root `HANDOFF.md` and added `.autodev/HANDOFF.md` beside it,
+  cross-linked in both directions, rather than moving or merging them — why: the step requires a
+  one-screen briefing at `.autodev/HANDOFF.md`, but the root file is the row-by-row spec §2
+  compliance audit and is already linked from `README.md`, `CLAUDE.md` and
+  `docs/dev/architecture.md`; merging would either break those links or blow the one-screen budget.
+  Root `HANDOFF.md` was retitled "spec §2 compliance detail" and now opens by pointing at the
+  briefing. — alternatives: move root HANDOFF.md into .autodev/ and fix every inbound link; merge
+  both into one long page.
+- [finalize/changelog] `## Unreleased` became `## 0.1.0 — 2026-09-14`, regrouped by impact with
+  breaking changes first, and the two superseded phase-1 bullets ("`--unicode` and `--theme ansi`
+  accepted but not yet visually distinct", "Continue … the save subsystem has not landed yet") were
+  deleted rather than kept — why: a changelog for a first release describes the shipped state, and
+  both lines were contradicted by later entries in the same section; a reader hitting them would
+  conclude themes and saving do not work. — alternatives: keep every phase bullet in chronological
+  order; keep them under a "superseded during development" heading.
+- [finalize/docs] `cargo install --path . --locked` is documented as the way to get `mosslight` on
+  `PATH` — why: README and `docs/user/ssh.md` both show bare `mosslight …` invocations that do not
+  work from a clean checkout, and ADR 0008 rejected Homebrew/`.deb` for v1, so building from source
+  is the only install route that exists. Verified by running it against a scratch `--root`. —
+  alternatives: rewrite every example as `./target/release/mosslight`; document a manual `cp` into
+  `~/.local/bin`.
+- [finalize/gaps] The missing `LICENSE` file (against `Cargo.toml`'s `license = "MIT"`) is recorded
+  as a known gap in `.autodev/HANDOFF.md` and `.autodev/PR_BODY.md` rather than authored here — why:
+  choosing and applying a licence with a named copyright holder is the repository owner's call, not a
+  documentation fix, and the finalize step is scoped to not changing application code or metadata. —
+  alternatives: write an MIT LICENSE naming the git author; drop the `license` field from
+  `Cargo.toml`.
+- [finalize/docs] `docs/dev/architecture.md` gained a "Where the build diverged from the
+  design-of-record" table (8 rows, each linking its decision) instead of editing
+  `.autodev/ARCHITECTURE.md` to match the code — why: the architecture document is the pre-code
+  design-of-record and its value is showing what was intended; rewriting it erases the divergence a
+  future reader needs to see. The built system is stated as the truth in the reconciliation table. —
+  alternatives: edit `.autodev/ARCHITECTURE.md` in place; leave the divergences only in DECISIONS.md.

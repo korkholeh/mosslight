@@ -1,7 +1,11 @@
-# Handoff
+# Handoff — spec §2 compliance detail
 
-Written at the end of phase 7 (2026-09-14), the last phase on `.autodev/ROADMAP.md`. This is the
-state a following session (human or agent) should read first before touching anything.
+> **Read `.autodev/HANDOFF.md` first.** That is the one-screen morning briefing: every check that
+> ran and its result, the decisions worth overruling, the known gaps, the live risks, and what to do
+> first. This page is its companion — the row-by-row spec §2 content audit and the long-form
+> reasoning behind the weakest claims, kept separate so the briefing stays one screen.
+
+Written at the end of phase 7 (2026-09-14), the last phase on `.autodev/ROADMAP.md`.
 
 ## §2 content table, row by row
 

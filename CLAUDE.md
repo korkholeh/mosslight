@@ -78,6 +78,8 @@ tests/          integration tests
 - Do not claim an environment was verified unless it was actually run.
 - English everywhere: code, identifiers, comments, commit messages, docs.
 
-Autodev docs: .autodev/ (ARCHITECTURE.md, RISKS.md, ROADMAP.md, PROGRESS.md, DECISIONS.md, phases/NN-*/PLAN.md)
-Project docs: docs/dev/ (architecture, development, testing, loop-and-modes, troubleshooting,
-verification-report, adr/), docs/user/ (cli, controls, ssh), CHANGELOG.md, HANDOFF.md
+Autodev docs: .autodev/ (ARCHITECTURE.md, RISKS.md, ROADMAP.md, PROGRESS.md, DECISIONS.md,
+HANDOFF.md — read this first, PR_BODY.md, phases/NN-*/PLAN.md)
+Project docs: docs/dev/ (architecture, content, development, testing, loop-and-modes,
+troubleshooting, verification-report, adr/), docs/user/ (README — the user index, cli, controls,
+ssh), CHANGELOG.md, HANDOFF.md (spec §2 compliance detail; `.autodev/HANDOFF.md` is the briefing)

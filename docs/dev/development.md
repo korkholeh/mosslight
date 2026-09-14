@@ -16,10 +16,17 @@ cargo build --release --locked
 cargo run --release -- --save-dir /tmp/mosslight-scratch
 ```
 
-Always pass `--save-dir` to a scratch directory when running by hand, so a manual session cannot
-touch a real save (phase 1 does not write one yet, but later phases will). The game refuses to
-start outside a real TTY, so it cannot be driven from a pipe or redirected input — use
+Always pass `--save-dir` to a scratch directory when running by hand. The game autosaves at four
+points during play (`docs/dev/loop-and-modes.md`), so a manual session started without it writes to
+the real per-user save slot and can overwrite a run you cared about. The game refuses to start
+outside a real TTY, so it cannot be driven from a pipe or redirected input — use
 `ratatui::backend::TestBackend` in tests instead (see `docs/dev/testing.md`).
+
+To put the binary on `PATH` instead of running it out of `target/release/`:
+
+```sh
+cargo install --path . --locked
+```
 
 ## Format and lint
 

@@ -1,13 +1,13 @@
 # Autodev progress — Mosslight
 
-- **Status:** running
-- **Current:** phase 7/7 · step `commit`
+- **Status:** done
+- **Current:** finished
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260913-2128` · **PR:** https://github.com/korkholeh/mosslight/pull/1
 - **Stack:** Rust 1.98.1 stable (pinned), single lib+bin Cargo package — ratatui 0.30.2 (crossterm 0.29 via its re-export), clap 4.6, serde 1, ron 0.12 (content), serde_json 1 (saves), signal-hook 0.4; no async runtime, no ECS, no runtime assets. · **Profile:** `rust-tui`
 - **Test command:** `cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --locked` · **E2E:** `-`
 - **Usage:** 5h ? (reset 14.09 16:50) · 7d ?
-- **Totals:** 51 sessions · 9.4 h agent time · ≈$209.27 API-equivalent
-- **Updated:** 2026-09-14 14:40:48
+- **Totals:** 52 sessions · 9.6 h agent time · ≈$215.03 API-equivalent
+- **Updated:** 2026-09-14 14:51:25
 
 ## Phases
 
@@ -19,7 +19,7 @@
 | 4 | Overworld: NPCs, chests, sword, lantern, secrets, map and inventory | yes | ✅ done | f8abff6 | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
 | 5 | Dungeon, keys, puzzles, two-phase boss and the ending | yes | ✅ done | c71cecc |  |
 | 6 | Save slot, full CLI and presentation modes | yes | ✅ done | 7a9b686 |  |
-| 7 | Balance, measurement, documentation and verification report | yes | 🔨 in_progress |  |  |
+| 7 | Balance, measurement, documentation and verification report | yes | ✅ done | 45e57b0 | review round 2 had blocker/major findings; fixes applied, not re-reviewed |
 
 ## Timeline
 
@@ -137,6 +137,15 @@
 - `2026-09-14 14:38:22` **p07-review_fix2** — done (25m, $5.76): All BLOCKER and MAJOR findings from REVIEW-r2 fixed by actually running the scripts, not just patching them: **Fixed:** - [BLOCKER] Criteria 4/6 + CPU measurement unmet, false "sandbox has no pty" claim — ran `./scripts/manual-checks.sh` and `./scripts/measure-cpu.sh` to completion for real (both e…
 - `2026-09-14 14:38:40` **p07-tests** — pass: exit 0: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 - `2026-09-14 14:40:48` **p07-docs** — done (2m, $0.63): Verified phase 7 docs against code, tests, and DECISIONS.md; no edits needed — everything was already accurate and consistent post-review-r2. Confirmed: CLAUDE.md (83 lines; commands/layout/conventions match current code incl. balance.rs, draw_due, three host scripts); docs/dev/architecture.md (mod…
+- `2026-09-14 14:40:49` **p07-commit** — done: 45e57b0
+- `2026-09-14 14:40:51` **push** — done: korkholeh/mosslight@autodev/spec-20260913-2128 as korkholeh
+- `2026-09-14 14:40:56` **p07-push** — done: korkholeh/mosslight@autodev/spec-20260913-2128-p07-balance-measurement-docs
+- `2026-09-14 14:40:58` **p07-pr** — draft: https://github.com/korkholeh/mosslight/pull/9
+- `2026-09-14 14:41:05` **stack** — linked: 7 pull requests — Checking existing stacks... Looking up PRs for 7 branches... ✓ Updated stack to 7 PRs (stack #5)
+- `2026-09-14 14:41:12` **stack-merge** — done: 1 pull request(s) into main
+- `2026-09-14 14:51:25` **finalize** — done (10m, $5.77): Shippable: the full documentation set is consistent with the built system and every command in it was run, not asserted. The gate is green on aarch64-apple-darwin — fmt, clippy -D warnings, 303 tests across 30 binaries (0 failed), release build (2.3 MB), and cargo install --path . --locked. Deliver…
+- `2026-09-14 14:51:25` **finalize** — done: Shippable: the full documentation set is consistent with the built system and every command in it was run, not asserted. The gate is green on aarch64-apple-darwin — fmt, clippy -D warnings, 303 tests…
+- `2026-09-14 14:51:25` **run** — done: all 7 phases completed
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.
