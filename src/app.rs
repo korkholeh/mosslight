@@ -414,8 +414,14 @@ impl App {
 
     fn apply_main_menu(&mut self, action: Action) {
         match action {
-            Action::MoveNorth => self.menu = self.menu.prev(),
-            Action::MoveSouth => self.menu = self.menu.next(),
+            Action::MoveNorth => {
+                self.menu = self.menu.prev();
+                self.dirty = true;
+            }
+            Action::MoveSouth => {
+                self.menu = self.menu.next();
+                self.dirty = true;
+            }
             Action::Confirm => match self.menu {
                 MenuCursor::Continue => self.continue_from_menu(),
                 MenuCursor::NewGame => self.new_game_from_menu(),

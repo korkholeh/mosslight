@@ -394,3 +394,22 @@ fn closing_a_dialogue_drops_a_queued_move_from_the_same_batch() {
     app.tick(&sim_actions);
     assert_eq!(app.state.hero.pos, pos_before);
 }
+
+#[test]
+fn main_menu_cursor_move_requests_a_redraw() {
+    let mut app = App::new(&cfg(), world(), Box::new(MemorySaveIo::new()));
+    // Clear the startup dirty bit the way a drawn frame does.
+    assert!(app.take_dirty());
+
+    let before = app.menu;
+    app.apply(&[Action::MoveSouth]);
+    assert_ne!(app.menu, before);
+    assert!(
+        app.take_dirty(),
+        "moving the menu cursor must mark the frame dirty, or the selection never redraws"
+    );
+
+    app.apply(&[Action::MoveNorth]);
+    assert_eq!(app.menu, before);
+    assert!(app.take_dirty());
+}
