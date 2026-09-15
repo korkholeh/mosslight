@@ -1,5 +1,9 @@
 # Mosslight
 
+![Two Mosslight frames: the Old Mill in the overworld, and the Warden's wind-up in the boss arena](docs/images/hero.png)
+
+*Real frames, 60x24, default `--theme gameboy` with the ASCII glyph set.*
+
 A single-player, top-down terminal adventure. The forest lighthouse has gone dark; find the
 ancient ember in the flooded sanctuary and relight it. Runs locally and over an interactive SSH
 session with a PTY. macOS and Linux only.
